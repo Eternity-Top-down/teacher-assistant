@@ -1,0 +1,419 @@
+:root {
+  color: #26364a;
+  font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+  background: #fff8ea;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    linear-gradient(90deg, rgba(78, 160, 222, 0.06) 1px, transparent 1px),
+    linear-gradient(rgba(255, 184, 77, 0.08) 1px, transparent 1px),
+    #fff8ea;
+  background-size: 28px 28px;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.page-shell {
+  min-height: 100vh;
+}
+
+.auth-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) 420px;
+  gap: 28px;
+  align-items: center;
+  min-height: 100vh;
+  padding: 44px;
+}
+
+.auth-illustration {
+  padding: 40px;
+  border: 3px solid #79b9ee;
+  border-radius: 28px 22px 30px 24px;
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow: 8px 8px 0 rgba(247, 194, 91, 0.32);
+}
+
+.auth-illustration h1,
+.top-banner h2 {
+  margin: 0;
+  color: #1f5f9b;
+  letter-spacing: 0;
+}
+
+.auth-illustration h1 {
+  font-size: 44px;
+  line-height: 1.2;
+}
+
+.auth-illustration p {
+  max-width: 680px;
+  font-size: 18px;
+  line-height: 1.8;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: #ec7b41;
+  font-weight: 700;
+}
+
+.doodle-board {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 28px;
+  padding: 20px 28px;
+  border: 3px solid #6dbb75;
+  border-radius: 18px 16px 20px 15px;
+  background: #f5fff2;
+  transform: rotate(-2deg);
+}
+
+.paper-card,
+.student-card,
+.top-banner {
+  border: 3px solid rgba(80, 137, 191, 0.55);
+  border-radius: 18px 16px 20px 15px;
+  background: rgba(255, 253, 246, 0.9);
+  box-shadow: 5px 6px 0 rgba(52, 91, 128, 0.08);
+}
+
+.auth-card {
+  display: grid;
+  gap: 16px;
+  padding: 26px;
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 6px;
+  border: 2px solid #f5c15f;
+  border-radius: 16px;
+  background: #fff4d8;
+}
+
+.tabs button,
+.nav-button,
+.ghost-btn,
+.primary-btn {
+  min-height: 42px;
+  border: 2px solid currentColor;
+  border-radius: 14px 12px 15px 13px;
+  background: #fffdf6;
+  color: #2f7abd;
+  font-weight: 700;
+}
+
+.tabs .active,
+.primary-btn {
+  background: #66b9f2;
+  color: white;
+}
+
+label {
+  display: grid;
+  gap: 8px;
+  font-weight: 700;
+}
+
+input,
+textarea {
+  width: 100%;
+  border: 2px solid #bed8ed;
+  border-radius: 13px;
+  outline: none;
+  padding: 12px 14px;
+  background: #fffefb;
+  color: #26364a;
+}
+
+textarea {
+  min-height: 96px;
+  resize: vertical;
+  line-height: 1.6;
+}
+
+input:focus,
+textarea:focus {
+  border-color: #4ea0de;
+  box-shadow: 0 0 0 4px rgba(78, 160, 222, 0.14);
+}
+
+.code-line span {
+  display: grid;
+  grid-template-columns: 1fr 88px;
+  gap: 8px;
+}
+
+.app-layout {
+  display: grid;
+  grid-template-columns: 230px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 24px 18px;
+  border-right: 3px dashed rgba(82, 141, 194, 0.35);
+  background: rgba(255, 253, 246, 0.78);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  color: #1f5f9b;
+  font-size: 24px;
+}
+
+.nav-button {
+  text-align: left;
+  padding: 0 16px;
+}
+
+.nav-button.active {
+  background: #e9f5ff;
+}
+
+.teacher-note {
+  margin-top: auto;
+  overflow-wrap: anywhere;
+  color: #617186;
+  font-size: 13px;
+}
+
+.content {
+  padding: 28px;
+}
+
+.top-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 22px;
+  padding: 24px 28px;
+  background: #eaf7ff;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 22px;
+}
+
+.student-form {
+  display: grid;
+  gap: 12px;
+  align-self: start;
+  padding: 22px;
+  border-color: #91c776;
+}
+
+.student-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 16px;
+}
+
+.student-card {
+  min-height: 168px;
+  padding: 20px;
+  border-color: #f2a65d;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.student-card:nth-child(2n) {
+  border-color: #98c879;
+}
+
+.student-card:nth-child(3n) {
+  border-color: #e99ab6;
+}
+
+.student-card:hover {
+  transform: translateY(-3px) rotate(-1deg);
+  box-shadow: 8px 9px 0 rgba(52, 91, 128, 0.12);
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 2px solid #f2a65d;
+  border-radius: 50%;
+  background: #fff1d8;
+  color: #e66f3c;
+  font-weight: 800;
+  font-size: 22px;
+}
+
+.student-card h3,
+.paper-card h3 {
+  margin: 12px 0 8px;
+}
+
+.student-card p,
+.student-card small,
+.paper-card small {
+  color: #617186;
+}
+
+.student-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 310px;
+  gap: 18px;
+}
+
+.profile-card,
+.feedback-editor,
+.feedback-detail,
+.history-panel {
+  padding: 22px;
+}
+
+.profile-card {
+  grid-column: 1 / -1;
+  border-color: #98c879;
+}
+
+.feedback-editor {
+  display: grid;
+  gap: 14px;
+  border-color: #79b9ee;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.large-text {
+  min-height: 180px;
+}
+
+.history-panel {
+  align-self: start;
+  border-color: #e99ab6;
+}
+
+.history-item {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 12px;
+  border: 2px solid #f1c8d7;
+  border-radius: 14px;
+  background: #fffafa;
+  text-align: left;
+}
+
+.history-item span {
+  color: #617186;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.feedback-detail {
+  grid-column: 1 / -1;
+  border-color: #f2c35f;
+}
+
+.feedback-detail pre {
+  margin: 0;
+  padding: 16px;
+  border-radius: 14px;
+  background: #fff8e8;
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+
+.empty-state {
+  display: grid;
+  place-items: center;
+  min-height: 140px;
+  border: 3px dashed #b7cce0;
+  border-radius: 18px;
+  color: #617186;
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.empty-state.small {
+  min-height: 80px;
+}
+
+.toast {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  max-width: min(420px, calc(100vw - 48px));
+  padding: 14px 18px;
+  border: 2px solid #f2a65d;
+  border-radius: 16px;
+  background: #fff4d8;
+  box-shadow: 4px 5px 0 rgba(71, 71, 71, 0.12);
+  font-weight: 700;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+@media (max-width: 920px) {
+  .auth-page,
+  .app-layout,
+  .dashboard-grid,
+  .student-page {
+    grid-template-columns: 1fr;
+  }
+
+  .auth-page {
+    padding: 22px;
+  }
+
+  .auth-illustration h1 {
+    font-size: 34px;
+  }
+
+  .sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    flex-direction: row;
+    align-items: center;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 3px dashed rgba(82, 141, 194, 0.35);
+  }
+
+  .teacher-note {
+    margin-top: 0;
+    margin-left: auto;
+  }
+}
