@@ -114,7 +114,9 @@ button {
 .tabs button,
 .nav-button,
 .ghost-btn,
-.primary-btn {
+.primary-btn,
+.danger-btn,
+.icon-btn {
   min-height: 42px;
   border: 2px solid currentColor;
   border-radius: 14px 12px 15px 13px;
@@ -127,6 +129,21 @@ button {
 .primary-btn {
   background: #66b9f2;
   color: white;
+}
+
+.danger-btn {
+  background: #fff3f3;
+  color: #d34d4d;
+}
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  min-height: 40px;
+  padding: 0;
+  color: #617186;
+  font-size: 24px;
 }
 
 label {
@@ -150,6 +167,7 @@ textarea {
   min-height: 96px;
   resize: vertical;
   line-height: 1.6;
+  overflow: hidden;
 }
 
 input:focus,
@@ -281,9 +299,9 @@ textarea:focus {
   color: #617186;
 }
 
-.student-page {
+.student-home,
+.history-page {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 310px;
   gap: 18px;
 }
 
@@ -313,6 +331,10 @@ textarea:focus {
 
 .large-text {
   min-height: 180px;
+}
+
+.final-text {
+  min-height: 320px;
 }
 
 .history-panel {
@@ -380,6 +402,154 @@ textarea:focus {
   font-weight: 700;
 }
 
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 18px;
+}
+
+.action-card {
+  display: grid;
+  gap: 10px;
+  min-height: 170px;
+  padding: 24px;
+  border: 3px solid #79b9ee;
+  border-radius: 20px 16px 22px 18px;
+  background: rgba(255, 253, 246, 0.92);
+  color: #26364a;
+  text-align: left;
+  box-shadow: 5px 6px 0 rgba(52, 91, 128, 0.08);
+}
+
+.action-card:nth-child(2) {
+  border-color: #e99ab6;
+}
+
+.action-card span {
+  font-size: 34px;
+}
+
+.action-card strong {
+  color: #1f5f9b;
+  font-size: 22px;
+}
+
+.action-card small {
+  color: #617186;
+  line-height: 1.6;
+}
+
+.recent-card {
+  padding: 22px;
+  border-color: #f2c35f;
+}
+
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.history-header h3 {
+  margin: 0;
+  color: #1f5f9b;
+  font-size: 24px;
+}
+
+.history-list {
+  display: grid;
+  gap: 14px;
+}
+
+.history-card {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  padding: 18px 20px;
+  border: 3px solid #f2c35f;
+  border-radius: 18px 16px 20px 15px;
+  background: rgba(255, 253, 246, 0.92);
+  color: #26364a;
+  text-align: left;
+  box-shadow: 4px 5px 0 rgba(52, 91, 128, 0.08);
+}
+
+.history-card:nth-child(2n) {
+  border-color: #98c879;
+}
+
+.history-card:nth-child(3n) {
+  border-color: #79b9ee;
+}
+
+.history-card strong {
+  color: #1f5f9b;
+}
+
+.history-card span {
+  font-weight: 700;
+}
+
+.history-card small {
+  color: #617186;
+  line-height: 1.6;
+}
+
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: rgba(38, 54, 74, 0.32);
+  overflow: auto;
+}
+
+.modal-panel {
+  width: min(960px, 100%);
+  max-height: calc(100vh - 56px);
+  overflow: auto;
+  padding: 24px;
+}
+
+.modal-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.modal-title h3 {
+  margin: 0;
+}
+
+.feedback-detail-modal {
+  display: grid;
+  gap: 14px;
+}
+
+.feedback-detail-modal pre {
+  margin: 0;
+  padding: 16px;
+  border-radius: 14px;
+  background: #fff8e8;
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+
+.feedback-detail-modal details {
+  padding: 12px;
+  border: 2px dashed #bed8ed;
+  border-radius: 14px;
+}
+
+.danger-row {
+  justify-content: space-between;
+}
+
 button:disabled {
   cursor: not-allowed;
   opacity: 0.6;
@@ -389,7 +559,9 @@ button:disabled {
   .auth-page,
   .app-layout,
   .dashboard-grid,
-  .student-page {
+  .student-home,
+  .history-page,
+  .action-grid {
     grid-template-columns: 1fr;
   }
 

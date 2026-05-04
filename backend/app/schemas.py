@@ -35,3 +35,11 @@ class FeedbackCreate(BaseModel):
     performance_summary: str = Field(default="", max_length=1000)
     ai_draft: str = Field(min_length=1)
     final_feedback: str = Field(min_length=1)
+
+
+class FeedbackUpdate(BaseModel):
+    lesson_time: str = Field(min_length=1)
+    lesson_summary: str = Field(min_length=5, max_length=2000)
+    performance_summary: str = Field(default="", max_length=1000)
+    ai_draft: str = Field(min_length=1)
+    final_feedback: str = Field(min_length=1)

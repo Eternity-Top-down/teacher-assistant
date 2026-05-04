@@ -11,6 +11,7 @@ from .schemas import (
     EmailCodeRequest,
     FeedbackCreate,
     FeedbackGenerateRequest,
+    FeedbackUpdate,
     LoginRequest,
     RegisterRequest,
     StudentCreate,
@@ -43,6 +44,26 @@ def require_student(student_id: int, teacher_id: int) -> dict:
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
     return dict(student)
+
+
+def require_feedback(feedback_id: int, teacher_id: int) -> dict:
+    with get_db() as db:
+        feedback = db.execute(
+            "SELECT * FROM feedbacks WHERE id = ? AND teacher_id = ?",
+            (feedback_id, teacher_id),
+        ).fetchone()
+    if not feedback:
+        raise HTTPException(status_code=404, detail="反馈不存在")
+    return dict(feedback)
+
+
+def lesson_date_label(lesson_time: str) -> str:
+    try:
+        normalized = lesson_time.replace("Z", "").replace("T", " ")
+        value = datetime.fromisoformat(normalized)
+        return f"{value.month}.{value.day}"
+    except ValueError:
+        return lesson_time[:10] or "本次"
 
 
 @app.get("/api/health")
@@ -163,9 +184,21 @@ def list_feedbacks(student_id: int, teacher: dict = CurrentTeacher):
 
 @app.post("/api/students/{student_id}/feedbacks/generate")
 async def create_ai_draft(student_id: int, payload: FeedbackGenerateRequest, teacher: dict = CurrentTeacher):
-    require_student(student_id, teacher["id"])
+    student = require_student(student_id, teacher["id"])
+    with get_db() as db:
+        feedback_count = db.execute(
+            "SELECT COUNT(*) AS count FROM feedbacks WHERE student_id = ? AND teacher_id = ?",
+            (student_id, teacher["id"]),
+        ).fetchone()["count"]
     try:
-        draft = await generate_feedback(payload.lesson_summary, payload.performance_summary)
+        draft = await generate_feedback(
+            student_name=student["name"],
+            subject=student["subject"] or "数学",
+            lesson_number=feedback_count + 1,
+            lesson_date=lesson_date_label(payload.lesson_time),
+            lesson_summary=payload.lesson_summary,
+            performance_summary=payload.performance_summary,
+        )
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"AI 服务暂时不可用：{exc}") from exc
     except Exception as exc:
@@ -200,3 +233,46 @@ def create_feedback(student_id: int, payload: FeedbackCreate, teacher: dict = Cu
         )
         feedback = db.execute("SELECT * FROM feedbacks WHERE id = ?", (cursor.lastrowid,)).fetchone()
     return {"feedback": dict(feedback)}
+
+
+@app.get("/api/feedbacks/{feedback_id}")
+def get_feedback(feedback_id: int, teacher: dict = CurrentTeacher):
+    return {"feedback": require_feedback(feedback_id, teacher["id"])}
+
+
+@app.put("/api/feedbacks/{feedback_id}")
+def update_feedback(feedback_id: int, payload: FeedbackUpdate, teacher: dict = CurrentTeacher):
+    require_feedback(feedback_id, teacher["id"])
+    timestamp = now_iso()
+    with get_db() as db:
+        db.execute(
+            """
+            UPDATE feedbacks
+            SET lesson_time = ?, lesson_summary = ?, performance_summary = ?,
+                ai_draft = ?, final_feedback = ?, updated_at = ?
+            WHERE id = ? AND teacher_id = ?
+            """,
+            (
+                payload.lesson_time,
+                payload.lesson_summary,
+                payload.performance_summary,
+                payload.ai_draft,
+                payload.final_feedback,
+                timestamp,
+                feedback_id,
+                teacher["id"],
+            ),
+        )
+        feedback = db.execute(
+            "SELECT * FROM feedbacks WHERE id = ? AND teacher_id = ?",
+            (feedback_id, teacher["id"]),
+        ).fetchone()
+    return {"feedback": dict(feedback)}
+
+
+@app.delete("/api/feedbacks/{feedback_id}")
+def delete_feedback(feedback_id: int, teacher: dict = CurrentTeacher):
+    require_feedback(feedback_id, teacher["id"])
+    with get_db() as db:
+        db.execute("DELETE FROM feedbacks WHERE id = ? AND teacher_id = ?", (feedback_id, teacher["id"]))
+    return {"ok": True}
