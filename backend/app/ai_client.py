@@ -134,3 +134,65 @@ async def generate_feedback(
         response.raise_for_status()
         data = response.json()
         return data["choices"][0]["message"]["content"].strip()
+
+
+def fallback_evening_monthly_feedback(
+    student_name: str,
+    feedback_month: str,
+    homework_summary: str,
+) -> str:
+    return f"""{student_name}{feedback_month}晚辅作业完成情况反馈：
+
+本月晚辅中，{student_name}的作业完成情况主要表现为：{homework_summary}
+
+从整体情况来看，孩子能够完成本月主要作业任务，但仍需要继续关注作业订正、计算细节和独立思考过程。后续建议在完成作业时尽量保持步骤完整，遇到不会的题目及时标记并主动提问，避免问题积累。
+
+下个月晚辅会继续关注{student_name}的作业完成质量和错题订正情况，帮助孩子逐步养成更稳定的数学作业习惯。"""
+
+
+async def generate_evening_monthly_feedback(
+    student_name: str,
+    grade: str,
+    school: str,
+    feedback_month: str,
+    homework_summary: str,
+) -> str:
+    if not settings.ai_api_key:
+        return fallback_evening_monthly_feedback(student_name, feedback_month, homework_summary)
+
+    student_info = "，".join(part for part in [student_name, grade, school] if part)
+    prompt = f"""
+你是一名晚辅老师，需要根据老师输入的“本月该学生数学作业完成情况简述”，直接写一份可以发给家长的月度反馈正文。
+
+要求：
+1. 只输出反馈正文，不要出现“好的”“以下是”“根据您的描述”等聊天式开头。
+2. 不要输出 Markdown 分隔线。
+3. 只根据本次输入生成，不要编造没有提供的具体事实。
+4. 语气自然、具体、克制，适合发给家长。
+5. 内容重点围绕：作业完成情况、作业质量/订正情况、存在问题、下月建议。
+6. 不强制固定标题格式，但正文要完整、清楚、方便老师修改。
+
+学生信息：{student_info or student_name}
+反馈月份：{feedback_month}
+本月作业完成情况简述：
+{homework_summary}
+""".strip()
+
+    payload = {
+        "model": settings.ai_model,
+        "messages": [
+            {"role": "system", "content": "你只输出晚辅月度作业反馈正文，不进行对话解释。"},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.55,
+    }
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            f"{settings.ai_base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {settings.ai_api_key}"},
+            json=payload,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data["choices"][0]["message"]["content"].strip()

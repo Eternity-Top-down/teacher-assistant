@@ -1,20 +1,30 @@
 from datetime import datetime, timedelta
 
+import sqlite3
+
 import httpx
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 
-from .ai_client import generate_feedback
+from .ai_client import generate_evening_monthly_feedback, generate_feedback
 from .database import get_db, init_db, now_iso
 from .email_service import make_code, send_verification_email
 from .schemas import (
     EmailCodeRequest,
+    EveningClassCreate,
+    EveningClassUpdate,
+    EveningMonthlyFeedbackCreate,
+    EveningMonthlyFeedbackUpdate,
+    EveningMonthlyGenerateRequest,
+    EveningStudentBulkCreate,
+    EveningStudentUpdate,
     FeedbackCreate,
     FeedbackGenerateRequest,
     FeedbackUpdate,
     LoginRequest,
     RegisterRequest,
     StudentCreate,
+    StudentUpdate,
 )
 from .security import CurrentTeacher, create_token, hash_password, verify_password
 
@@ -55,6 +65,39 @@ def require_feedback(feedback_id: int, teacher_id: int) -> dict:
     if not feedback:
         raise HTTPException(status_code=404, detail="反馈不存在")
     return dict(feedback)
+
+
+def require_evening_class(class_id: int, teacher_id: int) -> dict:
+    with get_db() as db:
+        row = db.execute(
+            "SELECT * FROM evening_classes WHERE id = ? AND teacher_id = ?",
+            (class_id, teacher_id),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="晚辅班级不存在")
+    return dict(row)
+
+
+def require_evening_student(student_id: int, teacher_id: int) -> dict:
+    with get_db() as db:
+        row = db.execute(
+            "SELECT * FROM evening_students WHERE id = ? AND teacher_id = ?",
+            (student_id, teacher_id),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="晚辅学生不存在")
+    return dict(row)
+
+
+def require_evening_monthly_feedback(feedback_id: int, teacher_id: int) -> dict:
+    with get_db() as db:
+        row = db.execute(
+            "SELECT * FROM evening_monthly_feedbacks WHERE id = ? AND teacher_id = ?",
+            (feedback_id, teacher_id),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="晚辅反馈不存在")
+    return dict(row)
 
 
 def lesson_date_label(lesson_time: str) -> str:
@@ -167,6 +210,33 @@ def get_student(student_id: int, teacher: dict = CurrentTeacher):
     return {"student": require_student(student_id, teacher["id"])}
 
 
+@app.put("/api/students/{student_id}")
+def update_student(student_id: int, payload: StudentUpdate, teacher: dict = CurrentTeacher):
+    require_student(student_id, teacher["id"])
+    with get_db() as db:
+        db.execute(
+            """
+            UPDATE students
+            SET name = ?, grade = ?, subject = ?, note = ?
+            WHERE id = ? AND teacher_id = ?
+            """,
+            (payload.name, payload.grade, payload.subject, payload.note, student_id, teacher["id"]),
+        )
+        student = db.execute(
+            "SELECT * FROM students WHERE id = ? AND teacher_id = ?",
+            (student_id, teacher["id"]),
+        ).fetchone()
+    return {"student": dict(student)}
+
+
+@app.delete("/api/students/{student_id}")
+def delete_student(student_id: int, teacher: dict = CurrentTeacher):
+    require_student(student_id, teacher["id"])
+    with get_db() as db:
+        db.execute("DELETE FROM students WHERE id = ? AND teacher_id = ?", (student_id, teacher["id"]))
+    return {"ok": True}
+
+
 @app.get("/api/students/{student_id}/feedbacks")
 def list_feedbacks(student_id: int, teacher: dict = CurrentTeacher):
     require_student(student_id, teacher["id"])
@@ -275,4 +345,265 @@ def delete_feedback(feedback_id: int, teacher: dict = CurrentTeacher):
     require_feedback(feedback_id, teacher["id"])
     with get_db() as db:
         db.execute("DELETE FROM feedbacks WHERE id = ? AND teacher_id = ?", (feedback_id, teacher["id"]))
+    return {"ok": True}
+
+
+@app.get("/api/evening/classes")
+def list_evening_classes(teacher: dict = CurrentTeacher):
+    with get_db() as db:
+        rows = db.execute(
+            """
+            SELECT c.*, COUNT(s.id) AS student_count
+            FROM evening_classes c
+            LEFT JOIN evening_students s ON s.class_id = c.id
+            WHERE c.teacher_id = ?
+            GROUP BY c.id
+            ORDER BY c.id DESC
+            """,
+            (teacher["id"],),
+        ).fetchall()
+    return {"classes": [dict(row) for row in rows]}
+
+
+@app.post("/api/evening/classes")
+def create_evening_class(payload: EveningClassCreate, teacher: dict = CurrentTeacher):
+    timestamp = now_iso()
+    with get_db() as db:
+        cursor = db.execute(
+            """
+            INSERT INTO evening_classes (teacher_id, name, note, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (teacher["id"], payload.name, payload.note, timestamp, timestamp),
+        )
+        row = db.execute("SELECT * FROM evening_classes WHERE id = ?", (cursor.lastrowid,)).fetchone()
+    return {"class": dict(row)}
+
+
+@app.get("/api/evening/classes/{class_id}")
+def get_evening_class(class_id: int, teacher: dict = CurrentTeacher):
+    return {"class": require_evening_class(class_id, teacher["id"])}
+
+
+@app.put("/api/evening/classes/{class_id}")
+def update_evening_class(class_id: int, payload: EveningClassUpdate, teacher: dict = CurrentTeacher):
+    require_evening_class(class_id, teacher["id"])
+    with get_db() as db:
+        db.execute(
+            "UPDATE evening_classes SET name = ?, note = ?, updated_at = ? WHERE id = ? AND teacher_id = ?",
+            (payload.name, payload.note, now_iso(), class_id, teacher["id"]),
+        )
+        row = db.execute(
+            "SELECT * FROM evening_classes WHERE id = ? AND teacher_id = ?",
+            (class_id, teacher["id"]),
+        ).fetchone()
+    return {"class": dict(row)}
+
+
+@app.delete("/api/evening/classes/{class_id}")
+def delete_evening_class(class_id: int, teacher: dict = CurrentTeacher):
+    require_evening_class(class_id, teacher["id"])
+    with get_db() as db:
+        db.execute("DELETE FROM evening_classes WHERE id = ? AND teacher_id = ?", (class_id, teacher["id"]))
+    return {"ok": True}
+
+
+@app.get("/api/evening/classes/{class_id}/students")
+def list_evening_students(class_id: int, teacher: dict = CurrentTeacher):
+    require_evening_class(class_id, teacher["id"])
+    with get_db() as db:
+        rows = db.execute(
+            """
+            SELECT s.*, COUNT(f.id) AS feedback_count
+            FROM evening_students s
+            LEFT JOIN evening_monthly_feedbacks f ON f.student_id = s.id
+            WHERE s.class_id = ? AND s.teacher_id = ?
+            GROUP BY s.id
+            ORDER BY s.id DESC
+            """,
+            (class_id, teacher["id"]),
+        ).fetchall()
+    return {"students": [dict(row) for row in rows]}
+
+
+@app.post("/api/evening/classes/{class_id}/students/bulk")
+def bulk_create_evening_students(class_id: int, payload: EveningStudentBulkCreate, teacher: dict = CurrentTeacher):
+    require_evening_class(class_id, teacher["id"])
+    names = []
+    for line in payload.names_text.splitlines():
+        name = line.strip()
+        if name and name not in names:
+            names.append(name)
+    if not names:
+        raise HTTPException(status_code=400, detail="请至少输入一名学生")
+
+    timestamp = now_iso()
+    with get_db() as db:
+        for name in names:
+            db.execute(
+                """
+                INSERT INTO evening_students (
+                    teacher_id, class_id, name, grade, school, note, created_at, updated_at
+                )
+                VALUES (?, ?, ?, '', '', '', ?, ?)
+                """,
+                (teacher["id"], class_id, name, timestamp, timestamp),
+            )
+        rows = db.execute(
+            "SELECT * FROM evening_students WHERE class_id = ? AND teacher_id = ? ORDER BY id DESC",
+            (class_id, teacher["id"]),
+        ).fetchall()
+    return {"students": [dict(row) for row in rows], "created_count": len(names)}
+
+
+@app.get("/api/evening/students/{student_id}")
+def get_evening_student(student_id: int, teacher: dict = CurrentTeacher):
+    return {"student": require_evening_student(student_id, teacher["id"])}
+
+
+@app.put("/api/evening/students/{student_id}")
+def update_evening_student(student_id: int, payload: EveningStudentUpdate, teacher: dict = CurrentTeacher):
+    require_evening_student(student_id, teacher["id"])
+    with get_db() as db:
+        db.execute(
+            """
+            UPDATE evening_students
+            SET name = ?, grade = ?, school = ?, note = ?, updated_at = ?
+            WHERE id = ? AND teacher_id = ?
+            """,
+            (payload.name, payload.grade, payload.school, payload.note, now_iso(), student_id, teacher["id"]),
+        )
+        row = db.execute(
+            "SELECT * FROM evening_students WHERE id = ? AND teacher_id = ?",
+            (student_id, teacher["id"]),
+        ).fetchone()
+    return {"student": dict(row)}
+
+
+@app.delete("/api/evening/students/{student_id}")
+def delete_evening_student(student_id: int, teacher: dict = CurrentTeacher):
+    require_evening_student(student_id, teacher["id"])
+    with get_db() as db:
+        db.execute("DELETE FROM evening_students WHERE id = ? AND teacher_id = ?", (student_id, teacher["id"]))
+    return {"ok": True}
+
+
+@app.get("/api/evening/students/{student_id}/monthly-feedbacks")
+def list_evening_monthly_feedbacks(student_id: int, teacher: dict = CurrentTeacher):
+    require_evening_student(student_id, teacher["id"])
+    with get_db() as db:
+        rows = db.execute(
+            """
+            SELECT * FROM evening_monthly_feedbacks
+            WHERE student_id = ? AND teacher_id = ?
+            ORDER BY feedback_month DESC, id DESC
+            """,
+            (student_id, teacher["id"]),
+        ).fetchall()
+    return {"feedbacks": [dict(row) for row in rows]}
+
+
+@app.post("/api/evening/students/{student_id}/monthly-feedbacks/generate")
+async def generate_evening_monthly_draft(
+    student_id: int,
+    payload: EveningMonthlyGenerateRequest,
+    teacher: dict = CurrentTeacher,
+):
+    student = require_evening_student(student_id, teacher["id"])
+    try:
+        draft = await generate_evening_monthly_feedback(
+            student_name=student["name"],
+            grade=student["grade"],
+            school=student["school"],
+            feedback_month=payload.feedback_month,
+            homework_summary=payload.homework_summary,
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"AI 服务暂时不可用：{exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="AI 晚辅反馈生成失败，请稍后重试") from exc
+    return {"draft": draft}
+
+
+@app.post("/api/evening/students/{student_id}/monthly-feedbacks")
+def create_evening_monthly_feedback(
+    student_id: int,
+    payload: EveningMonthlyFeedbackCreate,
+    teacher: dict = CurrentTeacher,
+):
+    require_evening_student(student_id, teacher["id"])
+    timestamp = now_iso()
+    try:
+        with get_db() as db:
+            cursor = db.execute(
+                """
+                INSERT INTO evening_monthly_feedbacks (
+                    teacher_id, student_id, feedback_month, homework_summary,
+                    ai_draft, final_feedback, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    teacher["id"],
+                    student_id,
+                    payload.feedback_month,
+                    payload.homework_summary,
+                    payload.ai_draft,
+                    payload.final_feedback,
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            row = db.execute(
+                "SELECT * FROM evening_monthly_feedbacks WHERE id = ?",
+                (cursor.lastrowid,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail="该学生这个月份已经有反馈，请编辑已有反馈") from exc
+    return {"feedback": dict(row)}
+
+
+@app.put("/api/evening/monthly-feedbacks/{feedback_id}")
+def update_evening_monthly_feedback(
+    feedback_id: int,
+    payload: EveningMonthlyFeedbackUpdate,
+    teacher: dict = CurrentTeacher,
+):
+    require_evening_monthly_feedback(feedback_id, teacher["id"])
+    try:
+        with get_db() as db:
+            db.execute(
+                """
+                UPDATE evening_monthly_feedbacks
+                SET feedback_month = ?, homework_summary = ?, ai_draft = ?,
+                    final_feedback = ?, updated_at = ?
+                WHERE id = ? AND teacher_id = ?
+                """,
+                (
+                    payload.feedback_month,
+                    payload.homework_summary,
+                    payload.ai_draft,
+                    payload.final_feedback,
+                    now_iso(),
+                    feedback_id,
+                    teacher["id"],
+                ),
+            )
+            row = db.execute(
+                "SELECT * FROM evening_monthly_feedbacks WHERE id = ? AND teacher_id = ?",
+                (feedback_id, teacher["id"]),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail="该学生这个月份已经有反馈，请编辑已有反馈") from exc
+    return {"feedback": dict(row)}
+
+
+@app.delete("/api/evening/monthly-feedbacks/{feedback_id}")
+def delete_evening_monthly_feedback(feedback_id: int, teacher: dict = CurrentTeacher):
+    require_evening_monthly_feedback(feedback_id, teacher["id"])
+    with get_db() as db:
+        db.execute(
+            "DELETE FROM evening_monthly_feedbacks WHERE id = ? AND teacher_id = ?",
+            (feedback_id, teacher["id"]),
+        )
     return {"ok": True}

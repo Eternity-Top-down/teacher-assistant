@@ -10,6 +10,10 @@ const FIELD_LABELS = {
   performance_summary: '课堂表现简述',
   ai_draft: 'AI 初稿',
   final_feedback: '最终反馈',
+  school: '学校',
+  names_text: '学生名单',
+  feedback_month: '反馈月份',
+  homework_summary: '作业完成情况简述',
 }
 
 export function getToken() {

@@ -66,5 +66,44 @@ def init_db() -> None:
                 FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE,
                 FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS evening_classes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                teacher_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                note TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS evening_students (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                teacher_id INTEGER NOT NULL,
+                class_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                grade TEXT NOT NULL DEFAULT '',
+                school TEXT NOT NULL DEFAULT '',
+                note TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE,
+                FOREIGN KEY (class_id) REFERENCES evening_classes(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS evening_monthly_feedbacks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                teacher_id INTEGER NOT NULL,
+                student_id INTEGER NOT NULL,
+                feedback_month TEXT NOT NULL,
+                homework_summary TEXT NOT NULL,
+                ai_draft TEXT NOT NULL,
+                final_feedback TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(student_id, feedback_month),
+                FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE,
+                FOREIGN KEY (student_id) REFERENCES evening_students(id) ON DELETE CASCADE
+            );
             """
         )
