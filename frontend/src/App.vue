@@ -1,6 +1,12 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { clearToken, request, setToken } from './api'
+import authWelcomeArt from './assets/illustrations/auth-welcome.jpg'
+import dashboardBannerArt from './assets/illustrations/dashboard-banner.jpg'
+import emptyStateArt from './assets/illustrations/empty-state.jpg'
+import eveningStickerArt from './assets/illustrations/evening-sticker.jpg'
+import oneOnOneStickerArt from './assets/illustrations/one-on-one-sticker.jpg'
+import sidebarGardenArt from './assets/illustrations/sidebar-garden.jpg'
 
 const teacher = ref(null)
 const route = ref(window.location.hash || '#/one-on-one')
@@ -718,6 +724,7 @@ onMounted(async () => {
   <main class="page-shell" @click="closeAccountMenu">
     <section v-if="currentView === 'auth'" class="auth-page">
       <div class="auth-illustration">
+        <img class="auth-art" :src="authWelcomeArt" alt="" aria-hidden="true" />
         <div class="doodle-sky" aria-hidden="true">
           <span>☀</span><span>✦</span><span>☁</span>
         </div>
@@ -751,6 +758,7 @@ onMounted(async () => {
           <button class="nav-button" :class="{ active: currentView.startsWith('one') }" @click="go('#/one-on-one')">一对一</button>
           <button class="nav-button" :class="{ active: currentView.startsWith('evening') }" @click="go('#/evening')">晚辅</button>
         </nav>
+        <img class="sidebar-art" :src="sidebarGardenArt" alt="" aria-hidden="true" />
         <div class="account-area" @click.stop>
           <button class="account-button" type="button" :class="{ active: showAccountMenu || currentView === 'settings' }" @click="toggleAccountMenu">
             <span class="account-avatar">{{ teacherInitial }}</span>
@@ -766,6 +774,7 @@ onMounted(async () => {
 
       <section class="content">
         <header class="top-banner">
+          <img class="banner-art" :src="dashboardBannerArt" alt="" aria-hidden="true" />
           <div>
             <p class="eyebrow">{{ currentView === 'settings' ? '设置' : currentView.startsWith('evening') ? '晚辅' : '一对一' }}</p>
             <h2 v-if="currentView === 'one-list'">一对一学生</h2>
@@ -791,12 +800,13 @@ onMounted(async () => {
           </form>
           <div class="student-list">
             <article v-for="student in oneStudents" :key="student.id" class="student-card" @click="go(`#/one-on-one/students/${student.id}`)">
+              <img class="card-sticker" :src="oneOnOneStickerArt" alt="" aria-hidden="true" />
               <span class="avatar">{{ student.name.slice(0, 1) }}</span>
               <h3>{{ student.name }}</h3>
               <p>{{ student.grade || '未填写年级' }} · {{ student.subject || '未填写科目' }}</p>
               <small>{{ student.feedback_count }} 条一对一记录</small>
             </article>
-            <div v-if="oneStudents.length === 0" class="empty-state">还没有一对一学生。</div>
+            <div v-if="oneStudents.length === 0" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>还没有一对一学生。</span></div>
           </div>
         </section>
 
@@ -818,7 +828,7 @@ onMounted(async () => {
           <div class="history-header"><div><p class="eyebrow">一对一历史反馈</p><h3>{{ currentStudent.name }} 的记录</h3></div><button class="primary-btn" @click="openCreateFeedback">新增反馈</button></div>
           <div class="history-list">
             <button v-for="feedback in feedbacks" :key="feedback.id" class="history-card" type="button" @click="openFeedbackDetail(feedback)"><strong>{{ feedback.lesson_time }}</strong><span>{{ shortText(feedback.lesson_summary, 64) }}</span><small>{{ shortText(feedback.final_feedback, 110) }}</small></button>
-            <div v-if="!feedbacks.length" class="empty-state">暂无反馈记录。</div>
+            <div v-if="!feedbacks.length" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>暂无反馈记录。</span></div>
           </div>
         </section>
 
@@ -831,12 +841,13 @@ onMounted(async () => {
           </form>
           <div class="student-list">
             <article v-for="cls in eveningClasses" :key="cls.id" class="student-card" @click="go(`#/evening/classes/${cls.id}`)">
+              <img class="card-sticker" :src="eveningStickerArt" alt="" aria-hidden="true" />
               <span class="avatar">班</span>
               <h3>{{ cls.name }}</h3>
               <p>{{ cls.note || '暂无备注' }}</p>
               <small>{{ cls.student_count }} 名学生</small>
             </article>
-            <div v-if="!eveningClasses.length" class="empty-state">还没有晚辅班级。</div>
+            <div v-if="!eveningClasses.length" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>还没有晚辅班级。</span></div>
           </div>
         </section>
 
@@ -848,10 +859,11 @@ onMounted(async () => {
           <div class="button-row"><button class="primary-btn" @click="showBulkModal = true; resizeAllTextareas()">批量录入学生</button></div>
           <div class="student-list">
             <article v-for="student in eveningStudents" :key="student.id" class="student-card" @click="go(`#/evening/students/${student.id}`)">
+              <img class="card-sticker" :src="eveningStickerArt" alt="" aria-hidden="true" />
               <span class="avatar">{{ student.name.slice(0, 1) }}</span><h3>{{ student.name }}</h3>
               <p>{{ student.grade || '未填年级' }} · {{ student.school || '未填学校' }}</p><small>{{ student.feedback_count }} 条月度反馈</small>
             </article>
-            <div v-if="!eveningStudents.length" class="empty-state">这个班级还没有学生。</div>
+            <div v-if="!eveningStudents.length" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>这个班级还没有学生。</span></div>
           </div>
         </section>
 
@@ -864,7 +876,7 @@ onMounted(async () => {
             <button v-for="feedback in eveningFeedbacks" :key="feedback.id" class="history-card" @click="openEveningDetail(feedback)">
               <strong>{{ feedback.feedback_month }}</strong><span>{{ shortText(feedback.homework_summary, 72) }}</span><small>{{ shortText(feedback.final_feedback, 120) }}</small>
             </button>
-            <div v-if="!eveningFeedbacks.length" class="empty-state">暂无月度反馈。</div>
+            <div v-if="!eveningFeedbacks.length" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>暂无月度反馈。</span></div>
           </div>
         </section>
 

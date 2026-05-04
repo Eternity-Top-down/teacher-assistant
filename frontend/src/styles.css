@@ -1519,3 +1519,219 @@ body::before {
     overflow: visible;
   }
 }
+
+/* Generated illustration asset pass. */
+.auth-illustration {
+  isolation: isolate;
+  background:
+    linear-gradient(150deg, rgba(255, 255, 255, 0.88), rgba(255, 248, 230, 0.78)),
+    #fff8e8;
+}
+
+.auth-art {
+  position: absolute;
+  right: -4%;
+  bottom: -10%;
+  z-index: 0;
+  width: min(62%, 760px);
+  max-height: 92%;
+  object-fit: contain;
+  opacity: 0.96;
+  filter: drop-shadow(7px 9px 0 rgba(63, 147, 222, 0.12));
+  pointer-events: none;
+}
+
+.auth-illustration .eyebrow,
+.auth-illustration h1,
+.auth-illustration p,
+.auth-illustration .doodle-board,
+.auth-illustration .doodle-row {
+  position: relative;
+  z-index: 1;
+  max-width: 50%;
+}
+
+.auth-illustration::before,
+.auth-illustration::after,
+.doodle-sky {
+  display: none;
+}
+
+.doodle-row {
+  font-size: 28px;
+  opacity: 0.42;
+}
+
+.doodle-board {
+  background: rgba(248, 255, 242, 0.92);
+  backdrop-filter: blur(2px);
+}
+
+.sidebar {
+  overflow: visible;
+}
+
+.sidebar-art {
+  width: 124px;
+  max-width: 70%;
+  margin: auto auto 6px;
+  opacity: 0.82;
+  pointer-events: none;
+  filter: drop-shadow(3px 4px 0 rgba(35, 54, 83, 0.08));
+}
+
+.account-area {
+  margin-top: 0;
+}
+
+.top-banner {
+  isolation: isolate;
+  min-height: 132px;
+  padding-right: min(34vw, 390px);
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, rgba(255, 253, 246, 0.95), rgba(255, 253, 246, 0.62)),
+    #eef8ff;
+}
+
+.banner-art {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.82;
+  pointer-events: none;
+}
+
+.top-banner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(90deg, rgba(255, 253, 246, 0.9) 0 44%, rgba(255, 253, 246, 0.42) 70%, rgba(255, 253, 246, 0.12));
+  pointer-events: none;
+}
+
+.student-card {
+  isolation: isolate;
+  overflow: hidden;
+  min-height: 188px;
+}
+
+.student-card > .card-sticker {
+  position: absolute;
+  right: -12px;
+  bottom: -18px;
+  z-index: 0;
+  width: 112px;
+  height: 112px;
+  object-fit: contain;
+  opacity: 0.28;
+  transform: rotate(5deg);
+  pointer-events: none;
+}
+
+.student-card:hover > .card-sticker {
+  opacity: 0.38;
+  transform: rotate(2deg) scale(1.04);
+}
+
+.student-card > .avatar,
+.student-card > h3,
+.student-card > p,
+.student-card > small {
+  position: relative;
+  z-index: 1;
+  max-width: calc(100% - 28px);
+}
+
+.empty-state {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  justify-items: start;
+  min-height: 128px;
+  border-color: rgba(63, 147, 222, 0.38);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.76), rgba(255, 249, 232, 0.76)),
+    repeating-linear-gradient(-10deg, rgba(242, 188, 66, 0.06) 0 8px, transparent 8px 18px);
+  text-align: left;
+}
+
+.empty-state img {
+  width: 92px;
+  height: 92px;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.empty-state span {
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.action-card,
+.history-card,
+.profile-card,
+.student-form,
+.settings-card,
+.modal-panel {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 249, 232, 0.94)),
+    repeating-linear-gradient(108deg, rgba(242, 188, 66, 0.045) 0 8px, transparent 8px 20px);
+}
+
+.modal-mask {
+  z-index: 30;
+}
+
+.account-menu {
+  z-index: 20;
+}
+
+@media (max-width: 920px) {
+  .auth-art {
+    right: -16%;
+    bottom: -18%;
+    width: 86%;
+    opacity: 0.34;
+  }
+
+  .auth-illustration .eyebrow,
+  .auth-illustration h1,
+  .auth-illustration p,
+  .auth-illustration .doodle-board,
+  .auth-illustration .doodle-row {
+    max-width: 100%;
+  }
+
+  .sidebar-art {
+    display: none;
+  }
+
+  .top-banner {
+    min-height: 108px;
+    padding-right: 18px;
+  }
+
+  .banner-art {
+    opacity: 0.28;
+  }
+
+  .top-banner::before {
+    background: rgba(255, 253, 246, 0.78);
+  }
+
+  .empty-state {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .empty-state img {
+    width: 70px;
+    height: 70px;
+  }
+}
