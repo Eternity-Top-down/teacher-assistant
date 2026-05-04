@@ -2,6 +2,7 @@ from pathlib import Path
 
 import httpx
 
+from .ai_settings import AIConfig
 from .config import settings
 
 
@@ -57,8 +58,15 @@ async def generate_feedback(
     lesson_date: str,
     lesson_summary: str,
     performance_summary: str,
+    ai_config: AIConfig | None = None,
 ) -> str:
-    if not settings.ai_api_key:
+    config = ai_config or AIConfig(
+        api_key=settings.ai_api_key,
+        base_url=settings.ai_base_url,
+        model=settings.ai_model,
+        provider="env",
+    )
+    if not config.api_key:
         return fallback_feedback(
             student_name,
             subject,
@@ -117,7 +125,7 @@ async def generate_feedback(
 """.strip()
 
     payload = {
-        "model": settings.ai_model,
+        "model": config.model,
         "messages": [
             {"role": "system", "content": "你只输出一对一课后反馈正文，不进行对话解释。"},
             {"role": "user", "content": prompt},
@@ -127,8 +135,8 @@ async def generate_feedback(
 
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(
-            f"{settings.ai_base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {settings.ai_api_key}"},
+            f"{config.base_url.rstrip('/')}/chat/completions",
+            headers={"Authorization": f"Bearer {config.api_key}"},
             json=payload,
         )
         response.raise_for_status()
@@ -156,8 +164,15 @@ async def generate_evening_monthly_feedback(
     school: str,
     feedback_month: str,
     homework_summary: str,
+    ai_config: AIConfig | None = None,
 ) -> str:
-    if not settings.ai_api_key:
+    config = ai_config or AIConfig(
+        api_key=settings.ai_api_key,
+        base_url=settings.ai_base_url,
+        model=settings.ai_model,
+        provider="env",
+    )
+    if not config.api_key:
         return fallback_evening_monthly_feedback(student_name, feedback_month, homework_summary)
 
     student_info = "，".join(part for part in [student_name, grade, school] if part)
@@ -179,7 +194,7 @@ async def generate_evening_monthly_feedback(
 """.strip()
 
     payload = {
-        "model": settings.ai_model,
+        "model": config.model,
         "messages": [
             {"role": "system", "content": "你只输出晚辅月度作业反馈正文，不进行对话解释。"},
             {"role": "user", "content": prompt},
@@ -189,8 +204,8 @@ async def generate_evening_monthly_feedback(
 
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(
-            f"{settings.ai_base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {settings.ai_api_key}"},
+            f"{config.base_url.rstrip('/')}/chat/completions",
+            headers={"Authorization": f"Bearer {config.api_key}"},
             json=payload,
         )
         response.raise_for_status()

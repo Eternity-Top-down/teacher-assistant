@@ -29,6 +29,8 @@ const showEveningStudentModal = ref(false)
 const showMonthlyModal = ref(false)
 const isEditingEveningDetail = ref(false)
 const editingClass = ref(null)
+const aiSettings = ref(null)
+const showAccountMenu = ref(false)
 
 const authForm = reactive({ email: '', password: '', confirmPassword: '', code: '' })
 const oneStudentForm = reactive({ name: '', grade: '', subject: '', note: '' })
@@ -39,10 +41,27 @@ const bulkForm = reactive({ names_text: '' })
 const eveningStudentForm = reactive({ name: '', grade: '', school: '', note: '' })
 const monthlyForm = reactive(newMonthlyFeedback())
 const monthlyEditForm = reactive(newMonthlyFeedback())
+const aiSettingsForm = reactive({
+  provider: 'deepseek',
+  base_url: 'https://api.deepseek.com/v1',
+  model: 'deepseek-chat',
+  api_key: '',
+  clear_api_key: false,
+})
+
+const AI_PRESETS = {
+  deepseek: { label: 'DeepSeek', base_url: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+  openai: { label: 'OpenAI', base_url: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+  qwen: { label: '通义千问', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
+  zhipu: { label: '智谱 AI', base_url: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
+  custom: { label: '自定义兼容接口', base_url: '', model: '' },
+}
 
 const isAuthed = computed(() => Boolean(teacher.value))
+const teacherInitial = computed(() => (teacher.value?.email || 'T').slice(0, 1).toUpperCase())
 const currentView = computed(() => {
   if (!isAuthed.value) return 'auth'
+  if (route.value === '#/settings') return 'settings'
   if (route.value.startsWith('#/evening/classes/')) return 'evening-class'
   if (route.value.startsWith('#/evening/students/')) return 'evening-student'
   if (route.value === '#/evening') return 'evening'
@@ -82,7 +101,16 @@ function showMessage(text) {
 }
 
 function go(path) {
+  showAccountMenu.value = false
   window.location.hash = path
+}
+
+function closeAccountMenu() {
+  showAccountMenu.value = false
+}
+
+function toggleAccountMenu() {
+  showAccountMenu.value = !showAccountMenu.value
 }
 
 function shortText(text, length = 72) {
@@ -186,6 +214,7 @@ async function login() {
 }
 
 function logout() {
+  showAccountMenu.value = false
   clearToken()
   teacher.value = null
   go('#/one-on-one')
@@ -198,6 +227,74 @@ async function loadMe() {
   } catch {
     clearToken()
   }
+}
+
+function applyAIPreset() {
+  const preset = AI_PRESETS[aiSettingsForm.provider]
+  if (!preset || aiSettingsForm.provider === 'custom') return
+  aiSettingsForm.base_url = preset.base_url
+  aiSettingsForm.model = preset.model
+}
+
+function assignAISettings(settings) {
+  aiSettings.value = settings
+  aiSettingsForm.provider = settings?.provider || 'deepseek'
+  aiSettingsForm.base_url = settings?.base_url || AI_PRESETS.deepseek.base_url
+  aiSettingsForm.model = settings?.model || AI_PRESETS.deepseek.model
+  aiSettingsForm.api_key = ''
+  aiSettingsForm.clear_api_key = false
+}
+
+async function loadAISettings() {
+  const data = await request('/settings/ai')
+  assignAISettings(data.settings)
+}
+
+async function saveAISettings() {
+  if (!aiSettingsForm.base_url.trim()) return showMessage('请填写 Base URL')
+  if (!aiSettingsForm.model.trim()) return showMessage('请填写模型名')
+  loading.value = true
+  try {
+    const data = await request('/settings/ai', {
+      method: 'PUT',
+      body: JSON.stringify(aiSettingsForm),
+    })
+    assignAISettings(data.settings)
+    showMessage('AI 设置已保存')
+  } catch (error) {
+    showMessage(error.message)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function testAISettings() {
+  if (!aiSettingsForm.base_url.trim()) return showMessage('请填写 Base URL')
+  if (!aiSettingsForm.model.trim()) return showMessage('请填写模型名')
+  loading.value = true
+  try {
+    const data = await request('/settings/ai/test', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: aiSettingsForm.provider,
+        base_url: aiSettingsForm.base_url,
+        model: aiSettingsForm.model,
+        api_key: aiSettingsForm.api_key,
+      }),
+    })
+    showMessage(data.message || '连接成功，可以生成反馈')
+  } catch (error) {
+    showMessage(error.message)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function clearAIKey() {
+  if (!window.confirm('确定清除已保存的 API Key 吗？清除后需要重新配置才能生成 AI 反馈。')) return
+  aiSettingsForm.api_key = ''
+  aiSettingsForm.clear_api_key = true
+  await saveAISettings()
 }
 
 async function loadOneStudents() {
@@ -589,6 +686,7 @@ async function deleteEveningFeedback() {
 }
 
 async function handleRoute() {
+  showAccountMenu.value = false
   route.value = window.location.hash || '#/one-on-one'
   detailFeedback.value = null
   eveningDetail.value = null
@@ -599,6 +697,7 @@ async function handleRoute() {
     if (currentView.value === 'evening') await loadEveningClasses()
     if (currentView.value === 'evening-class') await loadEveningClassContext()
     if (currentView.value === 'evening-student') await loadEveningStudentContext()
+    if (currentView.value === 'settings') await loadAISettings()
   } catch (error) {
     showMessage(error.message)
     if (currentView.value.toString().startsWith('evening')) go('#/evening')
@@ -616,15 +715,20 @@ onMounted(async () => {
 </script>
 
 <template>
-  <main class="page-shell">
+  <main class="page-shell" @click="closeAccountMenu">
     <section v-if="currentView === 'auth'" class="auth-page">
       <div class="auth-illustration">
+        <div class="doodle-sky" aria-hidden="true">
+          <span>☀</span><span>✦</span><span>☁</span>
+        </div>
         <p class="eyebrow">Teacher Assistant</p>
         <h1>教师工作记录助手</h1>
         <p>一对一课后反馈和晚辅月度作业反馈，都放进同一个清晰的工作台。</p>
-        <div class="doodle-board"><span>📚</span><strong>今日小目标</strong><em>记录学生成长</em></div>
+        <div class="doodle-board"><span class="line-icon book"></span><strong>今日小目标</strong><em>记录学生成长</em></div>
+        <div class="doodle-row" aria-hidden="true"><span>✎</span><span>▤</span><span>♡</span><span>☆</span></div>
       </div>
       <form class="paper-card auth-card" @submit.prevent="authMode === 'login' ? login() : register()">
+        <div class="paper-clip" aria-hidden="true"></div>
         <div class="tabs">
           <button type="button" :class="{ active: authMode === 'login' }" @click="authMode = 'login'">登录</button>
           <button type="button" :class="{ active: authMode === 'register' }" @click="authMode = 'register'">注册</button>
@@ -641,18 +745,31 @@ onMounted(async () => {
 
     <section v-else class="app-layout">
       <aside class="sidebar">
-        <div class="brand"><span>🍎</span><strong>教师助手</strong></div>
-        <button class="nav-button" :class="{ active: currentView.startsWith('one') }" @click="go('#/one-on-one')">一对一</button>
-        <button class="nav-button" :class="{ active: currentView.startsWith('evening') }" @click="go('#/evening')">晚辅</button>
-        <button class="nav-button" @click="logout">退出登录</button>
-        <div class="teacher-note">{{ teacher?.email }}</div>
+        <div class="brand"><span class="logo-mark"></span><strong>教师助手</strong></div>
+        <div class="side-doodle" aria-hidden="true"><span class="mini-pencil"></span><span>✦</span><span class="mini-book"></span></div>
+        <nav class="module-nav" aria-label="业务导航">
+          <button class="nav-button" :class="{ active: currentView.startsWith('one') }" @click="go('#/one-on-one')">一对一</button>
+          <button class="nav-button" :class="{ active: currentView.startsWith('evening') }" @click="go('#/evening')">晚辅</button>
+        </nav>
+        <div class="account-area" @click.stop>
+          <button class="account-button" type="button" :class="{ active: showAccountMenu || currentView === 'settings' }" @click="toggleAccountMenu">
+            <span class="account-avatar">{{ teacherInitial }}</span>
+            <span class="account-meta"><strong>已登录账号</strong><small>{{ teacher?.email }}</small></span>
+            <span class="account-caret">⌄</span>
+          </button>
+          <div v-if="showAccountMenu" class="account-menu">
+            <button type="button" @click="go('#/settings')">设置</button>
+            <button type="button" class="danger-menu-item" @click="logout">退出登录</button>
+          </div>
+        </div>
       </aside>
 
       <section class="content">
         <header class="top-banner">
           <div>
-            <p class="eyebrow">{{ currentView.startsWith('evening') ? '晚辅' : '一对一' }}</p>
+            <p class="eyebrow">{{ currentView === 'settings' ? '设置' : currentView.startsWith('evening') ? '晚辅' : '一对一' }}</p>
             <h2 v-if="currentView === 'one-list'">一对一学生</h2>
+            <h2 v-else-if="currentView === 'settings'">AI 模型配置</h2>
             <h2 v-else-if="currentView === 'evening'">晚辅班级</h2>
             <h2 v-else-if="currentView === 'evening-class'">{{ currentClass?.name || '晚辅班级' }}</h2>
             <h2 v-else-if="currentView === 'evening-student'">{{ currentEveningStudent?.name || '晚辅学生' }}</h2>
@@ -691,8 +808,8 @@ onMounted(async () => {
             <div class="button-row"><button class="ghost-btn" @click="openOneStudentEdit">编辑学生信息</button></div>
           </div>
           <div class="action-grid">
-            <button class="action-card" type="button" @click="openCreateFeedback"><span>✏️</span><strong>新增课后反馈</strong><small>记录本次课程，生成并修改反馈正文</small></button>
-            <button class="action-card" type="button" @click="go(`#/one-on-one/students/${currentStudent.id}/history`)"><span>📚</span><strong>查看历史反馈</strong><small>共 {{ feedbacks.length }} 条记录</small></button>
+            <button class="action-card" type="button" @click="openCreateFeedback"><span class="line-icon pencil"></span><strong>新增课后反馈</strong><small>记录本次课程，生成并修改反馈正文</small></button>
+            <button class="action-card" type="button" @click="go(`#/one-on-one/students/${currentStudent.id}/history`)"><span class="line-icon notebook"></span><strong>查看历史反馈</strong><small>共 {{ feedbacks.length }} 条记录</small></button>
           </div>
           <article v-if="feedbacks[0]" class="paper-card recent-card"><p class="eyebrow">最近一次反馈</p><h3>{{ feedbacks[0].lesson_time }}</h3><p>{{ shortText(feedbacks[0].final_feedback, 120) }}</p></article>
         </section>
@@ -749,6 +866,49 @@ onMounted(async () => {
             </button>
             <div v-if="!eveningFeedbacks.length" class="empty-state">暂无月度反馈。</div>
           </div>
+        </section>
+
+        <section v-if="currentView === 'settings'" class="settings-page">
+          <form class="paper-card settings-card" @submit.prevent="saveAISettings">
+            <div>
+              <p class="eyebrow">AI Provider</p>
+              <h3>使用你自己的模型 API</h3>
+              <p class="settings-hint">这里保存的是当前老师账号自己的 AI 配置。API Key 会加密保存在本地数据库里，不会显示明文。</p>
+            </div>
+
+            <label>模型供应商
+              <select v-model="aiSettingsForm.provider" @change="applyAIPreset">
+                <option v-for="(preset, key) in AI_PRESETS" :key="key" :value="key">{{ preset.label }}</option>
+              </select>
+            </label>
+
+            <label>Base URL
+              <input v-model="aiSettingsForm.base_url" placeholder="https://api.deepseek.com/v1" />
+              <small>模型平台的 OpenAI-compatible 接口地址。</small>
+            </label>
+
+            <label>模型名
+              <input v-model="aiSettingsForm.model" placeholder="deepseek-chat" />
+              <small>例如 DeepSeek 常用 deepseek-chat，OpenAI 可用 gpt-4o-mini。</small>
+            </label>
+
+            <label>API Key
+              <input v-model="aiSettingsForm.api_key" type="password" :placeholder="aiSettings?.has_api_key ? '已配置，留空则保留原 Key' : '粘贴你的 API Key'" autocomplete="off" />
+              <small>{{ aiSettings?.has_api_key ? '当前账号已有 API Key。填写新 Key 会覆盖旧 Key。' : '还没有保存 API Key，生成反馈前需要先配置。' }}</small>
+            </label>
+
+            <div class="settings-status" :class="{ ok: aiSettings?.has_api_key }">
+              {{ aiSettings?.has_api_key ? `已配置：${aiSettings.model}` : '未配置 API Key' }}
+            </div>
+
+            <div class="button-row danger-row">
+              <div class="button-row">
+                <button type="button" class="ghost-btn" :disabled="loading" @click="testAISettings">测试连接</button>
+                <button class="primary-btn" :disabled="loading">保存配置</button>
+              </div>
+              <button type="button" class="danger-btn" :disabled="loading || !aiSettings?.has_api_key" @click="clearAIKey">清除 API Key</button>
+            </div>
+          </form>
         </section>
       </section>
     </section>

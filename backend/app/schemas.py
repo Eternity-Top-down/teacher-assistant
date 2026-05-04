@@ -90,3 +90,18 @@ class EveningMonthlyFeedbackUpdate(BaseModel):
     homework_summary: str = Field(min_length=5, max_length=2000)
     ai_draft: str = Field(min_length=1)
     final_feedback: str = Field(min_length=1)
+
+
+class AISettingsUpdate(BaseModel):
+    provider: str = Field(default="deepseek", max_length=50)
+    base_url: str = Field(min_length=1, max_length=300)
+    model: str = Field(min_length=1, max_length=120)
+    api_key: str = Field(default="", max_length=500)
+    clear_api_key: bool = False
+
+
+class AISettingsTest(BaseModel):
+    provider: str = Field(default="deepseek", max_length=50)
+    base_url: str = Field(min_length=1, max_length=300)
+    model: str = Field(min_length=1, max_length=120)
+    api_key: str = Field(default="", max_length=500)

@@ -14,6 +14,10 @@ const FIELD_LABELS = {
   names_text: '学生名单',
   feedback_month: '反馈月份',
   homework_summary: '作业完成情况简述',
+  provider: '模型供应商',
+  base_url: 'Base URL',
+  model: '模型名',
+  api_key: 'API Key',
 }
 
 export function getToken() {

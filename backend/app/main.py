@@ -7,9 +7,19 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from .ai_client import generate_evening_monthly_feedback, generate_feedback
+from .ai_settings import (
+    AIConfig,
+    ai_settings_summary,
+    get_teacher_ai_settings,
+    require_teacher_ai_config,
+    save_teacher_ai_settings,
+    test_ai_connection,
+)
 from .database import get_db, init_db, now_iso
 from .email_service import make_code, send_verification_email
 from .schemas import (
+    AISettingsTest,
+    AISettingsUpdate,
     EmailCodeRequest,
     EveningClassCreate,
     EveningClassUpdate,
@@ -174,6 +184,48 @@ def me(teacher: dict = CurrentTeacher):
     return {"teacher": teacher}
 
 
+@app.get("/api/settings/ai")
+def get_ai_settings(teacher: dict = CurrentTeacher):
+    row = get_teacher_ai_settings(teacher["id"])
+    return {"settings": ai_settings_summary(row)}
+
+
+@app.put("/api/settings/ai")
+def update_ai_settings(payload: AISettingsUpdate, teacher: dict = CurrentTeacher):
+    row = save_teacher_ai_settings(
+        teacher_id=teacher["id"],
+        provider=payload.provider,
+        base_url=payload.base_url,
+        model=payload.model,
+        api_key=payload.api_key,
+        clear_api_key=payload.clear_api_key,
+    )
+    return {"settings": ai_settings_summary(row)}
+
+
+@app.post("/api/settings/ai/test")
+async def test_ai_settings(payload: AISettingsTest, teacher: dict = CurrentTeacher):
+    api_key = payload.api_key.strip()
+    if not api_key:
+        saved = get_teacher_ai_settings(teacher["id"])
+        if saved and saved["encrypted_api_key"]:
+            config = require_teacher_ai_config(teacher["id"])
+            config.provider = payload.provider
+            config.base_url = payload.base_url.rstrip("/")
+            config.model = payload.model
+        else:
+            raise HTTPException(status_code=400, detail="请先填写 API Key，或先保存一份可用配置")
+    else:
+        config = AIConfig(
+            api_key=api_key,
+            base_url=payload.base_url.rstrip("/"),
+            model=payload.model,
+            provider=payload.provider,
+        )
+    reply = await test_ai_connection(config)
+    return {"ok": True, "message": "连接成功，可以生成反馈", "reply": reply}
+
+
 @app.get("/api/students")
 def list_students(teacher: dict = CurrentTeacher):
     with get_db() as db:
@@ -260,6 +312,7 @@ async def create_ai_draft(student_id: int, payload: FeedbackGenerateRequest, tea
             "SELECT COUNT(*) AS count FROM feedbacks WHERE student_id = ? AND teacher_id = ?",
             (student_id, teacher["id"]),
         ).fetchone()["count"]
+    ai_config = require_teacher_ai_config(teacher["id"])
     try:
         draft = await generate_feedback(
             student_name=student["name"],
@@ -268,6 +321,7 @@ async def create_ai_draft(student_id: int, payload: FeedbackGenerateRequest, tea
             lesson_date=lesson_date_label(payload.lesson_time),
             lesson_summary=payload.lesson_summary,
             performance_summary=payload.performance_summary,
+            ai_config=ai_config,
         )
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"AI 服务暂时不可用：{exc}") from exc
@@ -510,6 +564,7 @@ async def generate_evening_monthly_draft(
     teacher: dict = CurrentTeacher,
 ):
     student = require_evening_student(student_id, teacher["id"])
+    ai_config = require_teacher_ai_config(teacher["id"])
     try:
         draft = await generate_evening_monthly_feedback(
             student_name=student["name"],
@@ -517,6 +572,7 @@ async def generate_evening_monthly_draft(
             school=student["school"],
             feedback_month=payload.feedback_month,
             homework_summary=payload.homework_summary,
+            ai_config=ai_config,
         )
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"AI 服务暂时不可用：{exc}") from exc

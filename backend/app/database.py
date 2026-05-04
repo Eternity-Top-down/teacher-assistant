@@ -105,5 +105,17 @@ def init_db() -> None:
                 FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE,
                 FOREIGN KEY (student_id) REFERENCES evening_students(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS teacher_ai_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                teacher_id INTEGER NOT NULL UNIQUE,
+                provider TEXT NOT NULL DEFAULT 'deepseek',
+                base_url TEXT NOT NULL,
+                model TEXT NOT NULL,
+                encrypted_api_key TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE
+            );
             """
         )
