@@ -36,7 +36,22 @@ const showMonthlyModal = ref(false)
 const isEditingEveningDetail = ref(false)
 const editingClass = ref(null)
 const aiSettings = ref(null)
+const visionSettings = ref(null)
+const styleExamples = ref([])
+const guideItems = ref([])
 const showAccountMenu = ref(false)
+const showApiOnboarding = ref(false)
+const showSettingsGuide = ref(false)
+const materialInput = ref(null)
+const materialImages = ref([])
+const materialAnalysis = ref(null)
+const materialsAnalyzing = ref(false)
+
+const API_ONBOARDING_SEEN_KEY = 'api_onboarding_seen_v1'
+const SETTINGS_GUIDE_SEEN_KEY = 'settings_guide_seen_v1'
+const MAX_MATERIAL_IMAGES = 9
+const MAX_MATERIAL_IMAGE_SIZE = 8 * 1024 * 1024
+const MATERIAL_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 
 const authForm = reactive({ email: '', password: '', confirmPassword: '', code: '' })
 const oneStudentForm = reactive({ name: '', grade: '', subject: '', note: '' })
@@ -53,18 +68,114 @@ const aiSettingsForm = reactive({
   model: 'deepseek-chat',
   api_key: '',
   clear_api_key: false,
+  feedback_format_mode: 'structured',
+})
+const visionSettingsForm = reactive({
+  provider: 'doubao_v',
+  base_url: 'https://ark.cn-beijing.volces.com/api/v3',
+  model: 'doubao-1.5-vision-pro-32k',
+  api_key: '',
+  clear_api_key: false,
+})
+const styleExampleForm = reactive({ title: '', content: '' })
+const settingsPanels = reactive({
+  feedback_ai: true,
+  vision_ai: false,
+  style_examples: false,
 })
 
 const AI_PRESETS = {
-  deepseek: { label: 'DeepSeek', base_url: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
-  openai: { label: 'OpenAI', base_url: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
-  qwen: { label: '通义千问', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
-  zhipu: { label: '智谱 AI', base_url: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
-  custom: { label: '自定义兼容接口', base_url: '', model: '' },
+  deepseek: {
+    label: 'DeepSeek（推荐）',
+    base_url: 'https://api.deepseek.com/v1',
+    model: 'deepseek-chat',
+    hint: '适合生成课后反馈初稿，中文表达稳定，性价比较高。',
+    api_key_url: 'https://platform.deepseek.com/api_keys',
+    docs_url: 'https://api-docs.deepseek.com/api/deepseek-api',
+  },
+  qwen: {
+    label: '阿里云百炼 - 通义千问',
+    base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    model: 'qwen-plus',
+    hint: '适合中国大陆用户，中文反馈、总结和润色场景都比较顺手。',
+    api_key_url: 'https://bailian.console.aliyun.com/?tab=model#/api-key',
+    docs_url: 'https://www.alibabacloud.com/help/en/model-studio/use-qwen-by-calling-api',
+  },
+  kimi: {
+    label: 'Kimi / Moonshot',
+    base_url: 'https://api.moonshot.ai/v1',
+    model: 'kimi-k2.5',
+    hint: '适合长上下文材料整理，也可用于生成自然、完整的反馈正文。',
+    api_key_url: 'https://platform.moonshot.ai/console/api-keys',
+    docs_url: 'https://platform.moonshot.ai/docs/overview',
+  },
+  zhipu: {
+    label: '智谱 AI',
+    base_url: 'https://open.bigmodel.cn/api/paas/v4',
+    model: 'glm-4-flash',
+    hint: '适合中文反馈生成和日常教育文本润色，可按账号权限替换为更高阶模型。',
+    api_key_url: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys',
+    docs_url: 'https://docs.bigmodel.cn/cn/guide/start/introduction',
+  },
+  openai: {
+    label: 'OpenAI',
+    base_url: 'https://api.openai.com/v1',
+    model: 'gpt-4o-mini',
+    hint: '适合高质量文本生成；请确认网络、账号和付款方式可用。',
+    api_key_url: 'https://platform.openai.com/api-keys',
+    docs_url: 'https://platform.openai.com/docs/quickstart',
+  },
+  custom: { label: '自定义兼容接口', base_url: '', model: '', hint: '用于其他 OpenAI-compatible 文本生成模型。', api_key_url: '', docs_url: '' },
+}
+
+const VISION_PRESETS = {
+  doubao_v: {
+    label: '火山方舟 - 豆包视觉理解（推荐，有免费额度）',
+    base_url: 'https://ark.cn-beijing.volces.com/api/v3',
+    model: 'doubao-1.5-vision-pro-32k',
+    hint: '适合课堂图片理解，多数新账号可在火山方舟领取免费推理额度。若控制台要求推理接入点，请把模型名改成 ep-... 接入点 ID。',
+    api_key_url: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey',
+    docs_url: 'https://www.volcengine.com/docs/82379/1168048',
+  },
+  qwen_vl: {
+    label: '阿里云百炼 - 通义千问视觉/OCR',
+    base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    model: 'qwen-vl-ocr-latest',
+    hint: '适合讲义、试卷、表格、手写和错题图片识别；可选 qwen-vl-ocr、qwen3-vl-flash、qwen3-vl-plus。',
+    api_key_url: 'https://bailian.console.aliyun.com/?tab=model#/api-key',
+    docs_url: 'https://www.alibabacloud.com/help/zh/doc-detail/2845564.html',
+  },
+  kimi: {
+    label: 'Kimi / Moonshot 视觉模型',
+    base_url: 'https://api.moonshot.ai/v1',
+    model: 'kimi-k2.5',
+    hint: '适合长上下文、多图课堂材料理解；也可按 Kimi 官方视觉模型列表填写。',
+    api_key_url: 'https://platform.moonshot.ai/console/api-keys',
+    docs_url: 'https://platform.moonshot.ai/docs/guide/use-kimi-vision-model',
+  },
+  zhipu_v: {
+    label: '智谱 AI - GLM-4V',
+    base_url: 'https://open.bigmodel.cn/api/paas/v4',
+    model: 'glm-4v-plus-0111',
+    hint: '适合图片理解、视觉总结和教育课件类场景。',
+    api_key_url: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys',
+    docs_url: 'https://docs.bigmodel.cn/cn/guide/models/vlm/glm-4v-plus-0111',
+  },
+  deepseek: {
+    label: 'DeepSeek（通常不推荐用于图片识别）',
+    base_url: 'https://api.deepseek.com/v1',
+    model: 'deepseek-chat',
+    hint: 'DeepSeek 常用于文本生成；请确认当前模型是否支持图片输入。课堂资料识别需要视觉/多模态模型。',
+    api_key_url: 'https://platform.deepseek.com/api_keys',
+    docs_url: 'https://api-docs.deepseek.com/api/deepseek-api',
+  },
+  custom: { label: '自定义兼容接口', base_url: '', model: '', hint: '用于其他 OpenAI-compatible 多模态供应商。', api_key_url: '', docs_url: '' },
 }
 
 const isAuthed = computed(() => Boolean(teacher.value))
 const teacherInitial = computed(() => (teacher.value?.email || 'T').slice(0, 1).toUpperCase())
+const selectedAIPreset = computed(() => AI_PRESETS[aiSettingsForm.provider] || AI_PRESETS.custom)
+const selectedVisionPreset = computed(() => VISION_PRESETS[visionSettingsForm.provider] || VISION_PRESETS.custom)
 const currentView = computed(() => {
   if (!isAuthed.value) return 'auth'
   if (route.value === '#/settings') return 'settings'
@@ -78,11 +189,15 @@ const currentView = computed(() => {
 
 function newFeedback() {
   return {
+    lesson_title: '',
     lesson_time: new Date().toISOString().slice(0, 16),
     lesson_summary: '',
     performance_summary: '',
+    advice_summary: '',
+    homework_plan: '',
     ai_draft: '',
     final_feedback: '',
+    format_mode: 'structured',
   }
 }
 
@@ -106,6 +221,52 @@ function showMessage(text) {
   }, 3200)
 }
 
+function markApiOnboardingSeen() {
+  localStorage.setItem(API_ONBOARDING_SEEN_KEY, '1')
+}
+
+function maybeShowApiOnboarding() {
+  if (!isAuthed.value || localStorage.getItem(API_ONBOARDING_SEEN_KEY)) return
+  showApiOnboarding.value = true
+}
+
+function closeApiOnboarding() {
+  markApiOnboardingSeen()
+  showApiOnboarding.value = false
+}
+
+function goToApiSettingsFromOnboarding() {
+  markApiOnboardingSeen()
+  showApiOnboarding.value = false
+  openSettingsPanel('feedback_ai')
+  go('#/settings')
+}
+
+function toggleSettingsPanel(panel) {
+  settingsPanels[panel] = !settingsPanels[panel]
+}
+
+function openSettingsPanel(panel) {
+  settingsPanels.feedback_ai = panel === 'feedback_ai'
+  settingsPanels.vision_ai = panel === 'vision_ai'
+  settingsPanels.style_examples = panel === 'style_examples'
+}
+
+function openSettingsGuide() {
+  showSettingsGuide.value = true
+}
+
+function closeSettingsGuide() {
+  localStorage.setItem(SETTINGS_GUIDE_SEEN_KEY, '1')
+  showSettingsGuide.value = false
+}
+
+function goToFeedbackSettingsFromGuide() {
+  localStorage.setItem(SETTINGS_GUIDE_SEEN_KEY, '1')
+  showSettingsGuide.value = false
+  openSettingsPanel('feedback_ai')
+}
+
 function go(path) {
   showAccountMenu.value = false
   window.location.hash = path
@@ -124,6 +285,32 @@ function shortText(text, length = 72) {
   return text.length > length ? `${text.slice(0, length)}...` : text
 }
 
+function studentDisplayName(fullName = '') {
+  const name = fullName.trim()
+  if (!name) return name
+  if ([...name].every((char) => /[\u4e00-\u9fff]/.test(char))) {
+    if (name.length === 2) return name.slice(1)
+    if (name.length >= 3) return name.slice(-2)
+  }
+  return name
+}
+
+function lessonDateLabel(lessonTime) {
+  const value = new Date(lessonTime)
+  if (Number.isNaN(value.getTime())) return ''
+  return `${value.getMonth() + 1}.${value.getDate()}`
+}
+
+function stripTitleDate(title) {
+  return title.trim().replace(/（\d{1,2}\.\d{1,2}）$/, '')
+}
+
+function titleForGenerate(title, lessonTime) {
+  const date = lessonDateLabel(lessonTime)
+  const base = stripTitleDate(title)
+  return date ? `${base}（${date}）` : base
+}
+
 function autoResize(event) {
   const textarea = event?.target
   if (!textarea) return
@@ -140,15 +327,32 @@ async function resizeAllTextareas() {
 }
 
 function assignFeedback(target, source) {
+  target.lesson_title = source.lesson_title || ''
   target.lesson_time = source.lesson_time || newFeedback().lesson_time
   target.lesson_summary = source.lesson_summary || ''
   target.performance_summary = source.performance_summary || ''
+  target.advice_summary = source.advice_summary || ''
+  target.homework_plan = source.homework_plan || ''
   target.ai_draft = source.ai_draft || ''
   target.final_feedback = source.final_feedback || ''
+  target.format_mode = source.format_mode || aiSettings.value?.feedback_format_mode || 'structured'
 }
 
 function resetFeedbackForm() {
   assignFeedback(feedbackForm, newFeedback())
+  guideItems.value = []
+  clearMaterialImages()
+}
+
+function hasFeedbackDraft(form) {
+  return Boolean(
+    form.lesson_summary.trim() ||
+      form.performance_summary.trim() ||
+      form.advice_summary.trim() ||
+      form.homework_plan.trim() ||
+      form.ai_draft.trim() ||
+      form.final_feedback.trim()
+  )
 }
 
 function assignMonthly(target, source) {
@@ -194,8 +398,9 @@ async function register() {
     teacher.value = data.teacher
     go('#/one-on-one')
     await handleRoute()
+    maybeShowApiOnboarding()
   } catch (error) {
-    showMessage(error.message)
+    showMessage(error.message || 'AI 初稿生成失败，请检查模型配置后重试')
   } finally {
     loading.value = false
   }
@@ -212,6 +417,7 @@ async function login() {
     teacher.value = data.teacher
     go('#/one-on-one')
     await handleRoute()
+    maybeShowApiOnboarding()
   } catch (error) {
     showMessage(error.message)
   } finally {
@@ -242,6 +448,13 @@ function applyAIPreset() {
   aiSettingsForm.model = preset.model
 }
 
+function applyVisionPreset() {
+  const preset = VISION_PRESETS[visionSettingsForm.provider]
+  if (!preset || visionSettingsForm.provider === 'custom') return
+  visionSettingsForm.base_url = preset.base_url
+  visionSettingsForm.model = preset.model
+}
+
 function assignAISettings(settings) {
   aiSettings.value = settings
   aiSettingsForm.provider = settings?.provider || 'deepseek'
@@ -249,11 +462,31 @@ function assignAISettings(settings) {
   aiSettingsForm.model = settings?.model || AI_PRESETS.deepseek.model
   aiSettingsForm.api_key = ''
   aiSettingsForm.clear_api_key = false
+  aiSettingsForm.feedback_format_mode = settings?.feedback_format_mode || 'structured'
+}
+
+function assignVisionSettings(settings) {
+  visionSettings.value = settings
+  visionSettingsForm.provider = settings?.provider || 'doubao_v'
+  visionSettingsForm.base_url = settings?.base_url || VISION_PRESETS.doubao_v.base_url
+  visionSettingsForm.model = settings?.model || VISION_PRESETS.doubao_v.model
+  visionSettingsForm.api_key = ''
+  visionSettingsForm.clear_api_key = false
 }
 
 async function loadAISettings() {
   const data = await request('/settings/ai')
   assignAISettings(data.settings)
+}
+
+async function loadVisionSettings() {
+  const data = await request('/settings/vision')
+  assignVisionSettings(data.settings)
+}
+
+async function loadStyleExamples() {
+  const data = await request('/settings/style-examples')
+  styleExamples.value = data.examples
 }
 
 async function saveAISettings() {
@@ -301,6 +534,100 @@ async function clearAIKey() {
   aiSettingsForm.api_key = ''
   aiSettingsForm.clear_api_key = true
   await saveAISettings()
+}
+
+async function saveVisionSettings() {
+  if (!visionSettingsForm.base_url.trim()) return showMessage('请填写图片识别模型的 Base URL')
+  if (!visionSettingsForm.model.trim()) return showMessage('请填写图片识别模型名')
+  loading.value = true
+  try {
+    const data = await request('/settings/vision', {
+      method: 'PUT',
+      body: JSON.stringify(visionSettingsForm),
+    })
+    assignVisionSettings(data.settings)
+    showMessage('图片识别模型配置已保存')
+  } catch (error) {
+    showMessage(error.message)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function testVisionSettings() {
+  if (!visionSettingsForm.base_url.trim()) return showMessage('请填写图片识别模型的 Base URL')
+  if (!visionSettingsForm.model.trim()) return showMessage('请填写图片识别模型名')
+  loading.value = true
+  try {
+    const data = await request('/settings/vision/test', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: visionSettingsForm.provider,
+        base_url: visionSettingsForm.base_url,
+        model: visionSettingsForm.model,
+        api_key: visionSettingsForm.api_key,
+      }),
+    })
+    showMessage(data.message || '图片识别模型连接成功')
+  } catch (error) {
+    showMessage(error.message)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function clearVisionKey() {
+  if (!window.confirm('确定清除已保存的图片识别模型 API Key 吗？清除后将无法识别课堂图片。')) return
+  visionSettingsForm.api_key = ''
+  visionSettingsForm.clear_api_key = true
+  await saveVisionSettings()
+}
+
+async function saveStyleExample() {
+  if (!styleExampleForm.content.trim()) return showMessage('请粘贴一段反馈样例')
+  loading.value = true
+  try {
+    await request('/settings/style-examples', {
+      method: 'POST',
+      body: JSON.stringify(styleExampleForm),
+    })
+    Object.assign(styleExampleForm, { title: '', content: '' })
+    await loadStyleExamples()
+    showMessage('风格样例已保存')
+  } catch (error) {
+    showMessage(error.message)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function toggleStyleExample(example) {
+  loading.value = true
+  try {
+    await request(`/settings/style-examples/${example.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...example, enabled: !example.enabled }),
+    })
+    await loadStyleExamples()
+  } catch (error) {
+    showMessage(error.message)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function deleteStyleExample(example) {
+  if (!window.confirm('确定删除这条风格样例吗？')) return
+  loading.value = true
+  try {
+    await request(`/settings/style-examples/${example.id}`, { method: 'DELETE' })
+    await loadStyleExamples()
+    showMessage('风格样例已删除')
+  } catch (error) {
+    showMessage(error.message)
+  } finally {
+    loading.value = false
+  }
 }
 
 async function loadOneStudents() {
@@ -374,29 +701,209 @@ async function deleteOneStudent() {
 
 function openCreateFeedback() {
   resetFeedbackForm()
+  const subject = currentStudent.value?.subject || '课程'
+  const displayName = studentDisplayName(currentStudent.value?.name || '学生')
+  feedbackForm.lesson_title = `${displayName}第${feedbacks.value.length + 1}次${subject}课`
+  feedbackForm.format_mode = aiSettings.value?.feedback_format_mode || 'structured'
   showCreateModal.value = true
   resizeAllTextareas()
 }
 
 function closeCreateFeedback() {
+  if (hasFeedbackDraft(feedbackForm) && !window.confirm('这条反馈还没有保存，确定关闭吗？')) return
   showCreateModal.value = false
   resetFeedbackForm()
 }
 
+function closeMonthlyModal() {
+  if (
+    (monthlyForm.homework_summary.trim() || monthlyForm.ai_draft.trim() || monthlyForm.final_feedback.trim()) &&
+    !window.confirm('这条月度反馈还没有保存，确定关闭吗？')
+  ) {
+    return
+  }
+  showMonthlyModal.value = false
+  resetMonthlyForm()
+}
+
+function parseGuideQuestions(text) {
+  return String(text || '')
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*[-*]?\s*\d*[.、)]?\s*/, '').trim())
+    .filter(Boolean)
+    .map((question) => ({ question, answer: '' }))
+}
+
+async function createGuideQuestions() {
+  loading.value = true
+  try {
+    const data = await request(`/students/${currentStudent.value.id}/feedbacks/guide`, {
+      method: 'POST',
+      body: JSON.stringify({
+        lesson_time: feedbackForm.lesson_time,
+        lesson_title: titleForGenerate(feedbackForm.lesson_title, feedbackForm.lesson_time),
+        lesson_summary: feedbackForm.lesson_summary,
+        performance_summary: feedbackForm.performance_summary,
+        advice_summary: feedbackForm.advice_summary,
+        homework_plan: feedbackForm.homework_plan,
+      }),
+    })
+    guideItems.value = parseGuideQuestions(data.questions)
+    await resizeAllTextareas()
+    showMessage('已帮你梳理可补充的问题')
+  } catch (error) {
+    showMessage(error.message)
+  } finally {
+    loading.value = false
+  }
+}
+
+function appendText(field, text) {
+  if (!text.trim()) return
+  feedbackForm[field] = [feedbackForm[field], text.trim()].filter(Boolean).join('\n')
+}
+
+function formatFileSize(size) {
+  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)}MB`
+  return `${Math.max(1, Math.round(size / 1024))}KB`
+}
+
+function clearMaterialInput() {
+  if (materialInput.value) materialInput.value.value = ''
+}
+
+function removeMaterialImage(index) {
+  const [removed] = materialImages.value.splice(index, 1)
+  if (removed?.preview_url) URL.revokeObjectURL(removed.preview_url)
+  materialAnalysis.value = null
+  clearMaterialInput()
+}
+
+function clearMaterialImages() {
+  materialImages.value.forEach((image) => {
+    if (image.preview_url) URL.revokeObjectURL(image.preview_url)
+  })
+  materialImages.value = []
+  materialAnalysis.value = null
+  clearMaterialInput()
+}
+
+function handleMaterialFiles(event) {
+  const files = Array.from(event.target.files || [])
+  if (!files.length) return
+  const availableSlots = MAX_MATERIAL_IMAGES - materialImages.value.length
+  if (availableSlots <= 0) {
+    showMessage(`一次最多上传 ${MAX_MATERIAL_IMAGES} 张课堂资料图片`)
+    clearMaterialInput()
+    return
+  }
+
+  const accepted = []
+  for (const file of files.slice(0, availableSlots)) {
+    if (!MATERIAL_IMAGE_TYPES.includes(file.type)) {
+      showMessage('只支持 JPG、PNG、WEBP 图片')
+      continue
+    }
+    if (file.size > MAX_MATERIAL_IMAGE_SIZE) {
+      showMessage(`${file.name} 超过 8MB，请压缩后再上传`)
+      continue
+    }
+    accepted.push({
+      id: `${Date.now()}-${file.name}-${Math.random()}`,
+      file,
+      preview_url: URL.createObjectURL(file),
+    })
+  }
+  if (files.length > availableSlots) showMessage(`已保留前 ${availableSlots} 张，一次最多上传 ${MAX_MATERIAL_IMAGES} 张`)
+  if (accepted.length) {
+    materialImages.value = [...materialImages.value, ...accepted]
+    materialAnalysis.value = null
+  }
+  clearMaterialInput()
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const value = String(reader.result || '')
+      resolve(value.includes(',') ? value.split(',')[1] : value)
+    }
+    reader.onerror = () => reject(new Error(`${file.name} 读取失败，请重新选择`))
+    reader.readAsDataURL(file)
+  })
+}
+
+async function analyzeMaterialImages() {
+  if (!materialImages.value.length) return showMessage('请先选择课堂资料图片')
+  materialsAnalyzing.value = true
+  try {
+    const images = await Promise.all(
+      materialImages.value.map(async (item) => ({
+        name: item.file.name,
+        mime_type: item.file.type,
+        data_base64: await fileToBase64(item.file),
+      }))
+    )
+    materialAnalysis.value = await request(`/students/${currentStudent.value.id}/feedbacks/materials/analyze`, {
+      method: 'POST',
+      body: JSON.stringify({
+        lesson_title: titleForGenerate(feedbackForm.lesson_title, feedbackForm.lesson_time),
+        subject: currentStudent.value?.subject || '',
+        images,
+      }),
+    })
+    showMessage('课堂资料已识别完成')
+  } catch (error) {
+    showMessage(error.message)
+  } finally {
+    materialsAnalyzing.value = false
+  }
+}
+
+function applyMaterialAnalysis() {
+  const suggestion = materialAnalysis.value?.lesson_summary_suggestion || ''
+  if (!suggestion.trim()) return showMessage('暂无可填入的课堂学习内容')
+  appendText('lesson_summary', suggestion)
+  resizeAllTextareas()
+  showMessage('已填入课堂学习内容，可继续修改')
+}
+
+function mergeGuideAnswers() {
+  const answered = guideItems.value.filter((item) => item.answer.trim())
+  if (!answered.length) return showMessage('先回答一两个问题再合并')
+  answered.forEach((item) => {
+    const line = `${item.question}：${item.answer}`
+    if (item.question.includes('作业')) appendText('homework_plan', item.answer)
+    else if (/(建议|方案|帮助|复习|巩固)/.test(item.question)) appendText('advice_summary', line)
+    else if (/(表现|状态|掌握|问题|薄弱|关注)/.test(item.question)) appendText('performance_summary', line)
+    else appendText('lesson_summary', line)
+  })
+  guideItems.value = []
+  resizeAllTextareas()
+  showMessage('补充要点已合并到表单')
+}
+
 async function generateDraft() {
+  if (!feedbackForm.lesson_title.trim()) return showMessage('请填写反馈标题')
   if (!feedbackForm.lesson_summary.trim()) return showMessage('请填写课程内容简述')
   loading.value = true
   try {
     const data = await request(`/students/${currentStudent.value.id}/feedbacks/generate`, {
       method: 'POST',
       body: JSON.stringify({
+        format_mode: feedbackForm.format_mode,
         lesson_time: feedbackForm.lesson_time,
+        lesson_title: titleForGenerate(feedbackForm.lesson_title, feedbackForm.lesson_time),
         lesson_summary: feedbackForm.lesson_summary,
         performance_summary: feedbackForm.performance_summary,
+        advice_summary: feedbackForm.advice_summary,
+        homework_plan: feedbackForm.homework_plan,
       }),
     })
     feedbackForm.ai_draft = data.draft
     feedbackForm.final_feedback = data.draft
+    feedbackForm.lesson_title = titleForGenerate(feedbackForm.lesson_title, feedbackForm.lesson_time)
     await resizeAllTextareas()
     showMessage('AI 初稿已生成')
   } catch (error) {
@@ -410,6 +917,7 @@ async function saveFeedback() {
   if (!feedbackForm.final_feedback.trim()) return showMessage('请先生成或填写反馈内容')
   loading.value = true
   try {
+    feedbackForm.lesson_title = titleForGenerate(feedbackForm.lesson_title, feedbackForm.lesson_time)
     await request(`/students/${currentStudent.value.id}/feedbacks`, {
       method: 'POST',
       body: JSON.stringify(feedbackForm),
@@ -470,6 +978,26 @@ async function deleteFeedback() {
     closeFeedbackDetail()
     await loadOneStudentContext(true)
     showMessage('反馈已删除')
+  } catch (error) {
+    showMessage(error.message)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function addCurrentFeedbackAsStyleExample() {
+  if (!detailFeedback.value) return
+  loading.value = true
+  try {
+    await request('/settings/style-examples/from-feedback', {
+      method: 'POST',
+      body: JSON.stringify({
+        feedback_type: 'one_on_one',
+        feedback_id: detailFeedback.value.id,
+        title: `${currentStudent.value?.name || '学生'} ${detailFeedback.value.lesson_time}`,
+      }),
+    })
+    showMessage('已设为个人风格样例')
   } catch (error) {
     showMessage(error.message)
   } finally {
@@ -703,7 +1231,11 @@ async function handleRoute() {
     if (currentView.value === 'evening') await loadEveningClasses()
     if (currentView.value === 'evening-class') await loadEveningClassContext()
     if (currentView.value === 'evening-student') await loadEveningStudentContext()
-    if (currentView.value === 'settings') await loadAISettings()
+    if (currentView.value === 'settings') {
+      await loadAISettings()
+      await loadVisionSettings()
+      await loadStyleExamples()
+    }
   } catch (error) {
     showMessage(error.message)
     if (currentView.value.toString().startsWith('evening')) go('#/evening')
@@ -717,6 +1249,7 @@ onMounted(async () => {
   if (!window.location.hash || window.location.hash === '#/students') go('#/one-on-one')
   await loadMe()
   await handleRoute()
+  maybeShowApiOnboarding()
 })
 </script>
 
@@ -787,6 +1320,7 @@ onMounted(async () => {
           <button v-if="currentView === 'one-student' || currentView === 'one-history'" class="ghost-btn" @click="go('#/one-on-one')">返回一对一</button>
           <button v-if="currentView === 'evening-class'" class="ghost-btn" @click="go('#/evening')">返回晚辅</button>
           <button v-if="currentView === 'evening-student'" class="ghost-btn" @click="go(`#/evening/classes/${currentEveningStudent?.class_id}`)">返回班级</button>
+          <button v-if="currentView === 'settings'" class="ghost-btn" type="button" @click="openSettingsGuide">设置引导</button>
         </header>
 
         <section v-if="currentView === 'one-list'" class="dashboard-grid">
@@ -818,7 +1352,7 @@ onMounted(async () => {
             <div class="button-row"><button class="ghost-btn" @click="openOneStudentEdit">编辑学生信息</button></div>
           </div>
           <div class="action-grid">
-            <button class="action-card" type="button" @click="openCreateFeedback"><span class="line-icon pencil"></span><strong>新增课后反馈</strong><small>记录本次课程，生成并修改反馈正文</small></button>
+            <button class="action-card" type="button" @click="openCreateFeedback"><span class="action-emoji">✏️</span><strong>新增课后反馈</strong><small>记录本次课程，生成并修改反馈正文</small></button>
             <button class="action-card" type="button" @click="go(`#/one-on-one/students/${currentStudent.id}/history`)"><span class="line-icon notebook"></span><strong>查看历史反馈</strong><small>共 {{ feedbacks.length }} 条记录</small></button>
           </div>
           <article v-if="feedbacks[0]" class="paper-card recent-card"><p class="eyebrow">最近一次反馈</p><h3>{{ feedbacks[0].lesson_time }}</h3><p>{{ shortText(feedbacks[0].final_feedback, 120) }}</p></article>
@@ -827,7 +1361,7 @@ onMounted(async () => {
         <section v-if="currentView === 'one-history' && currentStudent" class="history-page">
           <div class="history-header"><div><p class="eyebrow">一对一历史反馈</p><h3>{{ currentStudent.name }} 的记录</h3></div><button class="primary-btn" @click="openCreateFeedback">新增反馈</button></div>
           <div class="history-list">
-            <button v-for="feedback in feedbacks" :key="feedback.id" class="history-card" type="button" @click="openFeedbackDetail(feedback)"><strong>{{ feedback.lesson_time }}</strong><span>{{ shortText(feedback.lesson_summary, 64) }}</span><small>{{ shortText(feedback.final_feedback, 110) }}</small></button>
+            <button v-for="feedback in feedbacks" :key="feedback.id" class="history-card" type="button" @click="openFeedbackDetail(feedback)"><strong>{{ feedback.lesson_title || feedback.lesson_time }}</strong><span>{{ shortText(feedback.lesson_summary, 64) }}</span><small>{{ shortText(feedback.final_feedback, 110) }}</small></button>
             <div v-if="!feedbacks.length" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>暂无反馈记录。</span></div>
           </div>
         </section>
@@ -881,77 +1415,327 @@ onMounted(async () => {
         </section>
 
         <section v-if="currentView === 'settings'" class="settings-page">
-          <form class="paper-card settings-card" @submit.prevent="saveAISettings">
-            <div>
-              <p class="eyebrow">AI Provider</p>
-              <h3>使用你自己的模型 API</h3>
-              <p class="settings-hint">这里保存的是当前老师账号自己的 AI 配置。API Key 会加密保存在本地数据库里，不会显示明文。</p>
-            </div>
+          <form class="paper-card settings-card" :class="{ collapsed: !settingsPanels.feedback_ai }" @submit.prevent="saveAISettings">
+            <button class="settings-accordion-header" type="button" @click="toggleSettingsPanel('feedback_ai')">
+              <span>
+                <span class="eyebrow">Feedback Model</span>
+                <strong>反馈生成模型配置</strong>
+                <small>用于根据课堂内容、表现、建议和作业生成课后反馈初稿。</small>
+              </span>
+              <span class="settings-header-side">
+                <span class="settings-pill" :class="{ ok: aiSettings?.has_api_key }">{{ aiSettings?.has_api_key ? `已配置：${aiSettings.model}` : '必配 · 未配置' }}</span>
+                <span class="settings-caret">{{ settingsPanels.feedback_ai ? '收起' : '展开' }}</span>
+              </span>
+            </button>
 
-            <label>模型供应商
-              <select v-model="aiSettingsForm.provider" @change="applyAIPreset">
-                <option v-for="(preset, key) in AI_PRESETS" :key="key" :value="key">{{ preset.label }}</option>
-              </select>
-            </label>
+            <div v-show="settingsPanels.feedback_ai" class="settings-panel-body">
+              <p class="settings-hint">反馈生成模型主要负责把老师填写的课堂事实整理成可以发给家长的课后反馈。API Key 会加密保存在本地数据库里，不会显示明文。</p>
 
-            <label>Base URL
-              <input v-model="aiSettingsForm.base_url" placeholder="https://api.deepseek.com/v1" />
-              <small>模型平台的 OpenAI-compatible 接口地址。</small>
-            </label>
-
-            <label>模型名
-              <input v-model="aiSettingsForm.model" placeholder="deepseek-chat" />
-              <small>例如 DeepSeek 常用 deepseek-chat，OpenAI 可用 gpt-4o-mini。</small>
-            </label>
-
-            <label>API Key
-              <input v-model="aiSettingsForm.api_key" type="password" :placeholder="aiSettings?.has_api_key ? '已配置，留空则保留原 Key' : '粘贴你的 API Key'" autocomplete="off" />
-              <small>{{ aiSettings?.has_api_key ? '当前账号已有 API Key。填写新 Key 会覆盖旧 Key。' : '还没有保存 API Key，生成反馈前需要先配置。' }}</small>
-            </label>
-
-            <div class="settings-status" :class="{ ok: aiSettings?.has_api_key }">
-              {{ aiSettings?.has_api_key ? `已配置：${aiSettings.model}` : '未配置 API Key' }}
-            </div>
-
-            <div class="button-row danger-row">
-              <div class="button-row">
-                <button type="button" class="ghost-btn" :disabled="loading" @click="testAISettings">测试连接</button>
-                <button class="primary-btn" :disabled="loading">保存配置</button>
+              <label>推荐模型
+                <select v-model="aiSettingsForm.provider" @change="applyAIPreset">
+                  <option v-for="(preset, key) in AI_PRESETS" :key="key" :value="key">{{ preset.label }}</option>
+                </select>
+                <small>{{ selectedAIPreset.hint }}</small>
+              </label>
+              <div class="preset-link-row">
+                <a v-if="selectedAIPreset.api_key_url" :href="selectedAIPreset.api_key_url" target="_blank" rel="noreferrer">获取 API Key</a>
+                <a v-if="selectedAIPreset.docs_url" :href="selectedAIPreset.docs_url" target="_blank" rel="noreferrer">查看接入文档</a>
               </div>
-              <button type="button" class="danger-btn" :disabled="loading || !aiSettings?.has_api_key" @click="clearAIKey">清除 API Key</button>
+
+              <label>Base URL
+                <input v-model="aiSettingsForm.base_url" placeholder="https://api.deepseek.com/v1" />
+                <small>模型平台的 OpenAI-compatible 接口地址。</small>
+              </label>
+
+              <label>模型名
+                <input v-model="aiSettingsForm.model" placeholder="deepseek-chat" />
+                <small>示例：deepseek-chat、qwen-plus、kimi-k2.5、glm-4-flash。</small>
+              </label>
+
+              <label>API Key
+                <input v-model="aiSettingsForm.api_key" type="password" :placeholder="aiSettings?.has_api_key ? '已配置，留空则保留原 Key' : '粘贴你的 API Key'" autocomplete="off" />
+                <small>{{ aiSettings?.has_api_key ? '当前账号已有 API Key。填写新 Key 会覆盖旧 Key。' : '还没有保存 API Key，生成反馈前需要先配置。' }}</small>
+              </label>
+
+              <label>默认反馈生成模式
+                <select v-model="aiSettingsForm.feedback_format_mode">
+                  <option value="structured">结构化反馈</option>
+                  <option value="free_style">自由风格</option>
+                </select>
+                <small>结构化适合统一四段格式；自由风格会更多参考你的个人样例排版和语气。</small>
+              </label>
+
+              <div class="button-row danger-row">
+                <div class="button-row">
+                  <button type="button" class="ghost-btn" :disabled="loading" @click="testAISettings">测试连接</button>
+                  <button class="primary-btn" :disabled="loading">保存反馈生成配置</button>
+                </div>
+                <button type="button" class="danger-btn" :disabled="loading || !aiSettings?.has_api_key" @click="clearAIKey">清除 API Key</button>
+              </div>
+            </div>
+          </form>
+
+          <form class="paper-card settings-card vision-settings-card" :class="{ collapsed: !settingsPanels.vision_ai }" @submit.prevent="saveVisionSettings">
+            <button class="settings-accordion-header" type="button" @click="toggleSettingsPanel('vision_ai')">
+              <span>
+                <span class="eyebrow">Image Recognition</span>
+                <strong>图片识别模型配置（视觉模型）</strong>
+                <small>用于识别课堂讲义、板书、作业、错题照片，并提炼知识点和易错点。</small>
+              </span>
+              <span class="settings-header-side">
+                <span class="settings-pill" :class="{ ok: visionSettings?.has_api_key }">{{ visionSettings?.has_api_key ? `已配置：${visionSettings.model}` : '可选 · 未配置' }}</span>
+                <span class="settings-caret">{{ settingsPanels.vision_ai ? '收起' : '展开' }}</span>
+              </span>
+            </button>
+
+            <div v-show="settingsPanels.vision_ai" class="settings-panel-body">
+              <p class="settings-hint">视觉模型就是能看懂图片的 AI 模型。普通文本反馈模型可以写反馈，但图片识别这里需要填写支持图片输入的模型。</p>
+
+              <label>推荐模型
+                <select v-model="visionSettingsForm.provider" @change="applyVisionPreset">
+                  <option v-for="(preset, key) in VISION_PRESETS" :key="key" :value="key">{{ preset.label }}</option>
+                </select>
+                <small>{{ selectedVisionPreset.hint }}</small>
+              </label>
+              <div class="preset-link-row">
+                <a v-if="selectedVisionPreset.api_key_url" :href="selectedVisionPreset.api_key_url" target="_blank" rel="noreferrer">获取 API Key</a>
+                <a v-if="selectedVisionPreset.docs_url" :href="selectedVisionPreset.docs_url" target="_blank" rel="noreferrer">查看接入文档</a>
+              </div>
+
+              <label>Base URL
+                <input v-model="visionSettingsForm.base_url" placeholder="https://ark.cn-beijing.volces.com/api/v3" />
+                <small>模型平台的 OpenAI-compatible 多模态接口地址。豆包常用 https://ark.cn-beijing.volces.com/api/v3。</small>
+              </label>
+
+              <label>模型名
+                <input v-model="visionSettingsForm.model" placeholder="doubao-1.5-vision-pro-32k" />
+                <small>示例：doubao-1.5-vision-pro-32k、ep-...、qwen-vl-ocr-latest、kimi-k2.5、glm-4v-plus-0111。</small>
+              </label>
+
+              <label>API Key
+                <input v-model="visionSettingsForm.api_key" type="password" :placeholder="visionSettings?.has_api_key ? '已配置，留空则保留原 Key' : '粘贴图片识别模型的 API Key'" autocomplete="off" />
+                <small>{{ visionSettings?.has_api_key ? '当前账号已有图片识别模型 API Key。填写新 Key 会覆盖旧 Key。' : '还没有保存图片识别模型 API Key，识别课堂图片前需要先配置。' }}</small>
+              </label>
+
+              <p v-if="visionSettingsForm.provider === 'deepseek'" class="settings-warning">DeepSeek 常用于文本生成；请确认当前模型是否支持图片输入。课堂资料识别需要视觉/多模态模型。</p>
+
+              <div class="button-row danger-row">
+                <div class="button-row">
+                  <button type="button" class="ghost-btn" :disabled="loading" @click="testVisionSettings">测试视觉连接</button>
+                  <button class="primary-btn" :disabled="loading">保存图片识别配置</button>
+                </div>
+                <button type="button" class="danger-btn" :disabled="loading || !visionSettings?.has_api_key" @click="clearVisionKey">清除 API Key</button>
+              </div>
+              <p class="settings-hint">测试会发送一张内置示例图片给模型，只用于确认它能读取图片，不会保存。</p>
+            </div>
+          </form>
+
+          <form class="paper-card settings-card" :class="{ collapsed: !settingsPanels.style_examples }" @submit.prevent="saveStyleExample">
+            <button class="settings-accordion-header" type="button" @click="toggleSettingsPanel('style_examples')">
+              <span>
+                <span class="eyebrow">Writing Style</span>
+                <strong>个人反馈风格样例</strong>
+                <small>可选配置，让生成出来的反馈更像你平时写给家长的表达。</small>
+              </span>
+              <span class="settings-header-side">
+                <span class="settings-pill" :class="{ ok: styleExamples.length }">{{ styleExamples.length ? `${styleExamples.length} 条样例` : '可选 · 暂无样例' }}</span>
+                <span class="settings-caret">{{ settingsPanels.style_examples ? '收起' : '展开' }}</span>
+              </span>
+            </button>
+
+            <div v-show="settingsPanels.style_examples" class="settings-panel-body">
+              <p class="settings-hint">AI 只学习语气、结构和详略，不复用样例里的学生事实。保存过反馈后，也可以在反馈详情里一键设为样例。</p>
+
+              <label>样例标题
+                <input v-model="styleExampleForm.title" placeholder="例如：温和细致版 / 简洁直接版" />
+              </label>
+
+              <label>反馈样例
+                <textarea v-model="styleExampleForm.content" class="auto-textarea final-text" placeholder="粘贴一段你写过的完整反馈" @input="autoResize"></textarea>
+              </label>
+
+              <div class="button-row">
+                <button class="primary-btn" :disabled="loading">保存风格样例</button>
+              </div>
+
+              <div class="style-example-list">
+                <article v-for="example in styleExamples" :key="example.id" class="style-example-item">
+                  <div>
+                    <strong>{{ example.title || '未命名样例' }}</strong>
+                    <small>{{ example.enabled ? '生成时参考' : '已停用' }} · {{ shortText(example.content, 88) }}</small>
+                  </div>
+                  <div class="button-row">
+                    <button type="button" class="ghost-btn" :disabled="loading" @click="toggleStyleExample(example)">{{ example.enabled ? '停用' : '启用' }}</button>
+                    <button type="button" class="danger-btn" :disabled="loading" @click="deleteStyleExample(example)">删除</button>
+                  </div>
+                </article>
+                <p v-if="!styleExamples.length" class="settings-hint">还没有风格样例。</p>
+              </div>
             </div>
           </form>
         </section>
       </section>
     </section>
 
-    <div v-if="showCreateModal" class="modal-mask" @click.self="showCreateModal = false">
+    <div v-if="showApiOnboarding" class="modal-mask">
+      <article class="paper-card modal-panel onboarding-panel">
+        <div class="modal-title">
+          <div>
+            <p class="eyebrow">开始使用 AI 前</p>
+            <h3>先配置你的模型 API</h3>
+          </div>
+          <button type="button" class="icon-btn" @click="closeApiOnboarding">×</button>
+        </div>
+        <p class="settings-hint">老师要使用“生成 AI 初稿”和课堂图片识别，需要先到设置页填写自己的模型 API Key。配置只保存在当前老师账号下，API Key 会加密保存。</p>
+        <div class="guide-step-list">
+          <article>
+            <strong>1. 反馈生成模型是必配项</strong>
+            <span>它负责根据课堂内容、学生表现、课后建议和作业安排，生成课后反馈初稿。</span>
+          </article>
+          <article>
+            <strong>2. 图片识别模型是可选增强项</strong>
+            <span>如果你想上传讲义、作业或错题照片来提炼课堂内容，再配置支持图片输入的视觉模型。</span>
+          </article>
+          <article>
+            <strong>3. 个人风格样例可稍后补充</strong>
+            <span>粘贴你写过的反馈样例后，AI 会更贴近你的表达习惯。</span>
+          </article>
+        </div>
+        <div class="button-row danger-row">
+          <button type="button" class="primary-btn" @click="goToApiSettingsFromOnboarding">去设置 API</button>
+          <button type="button" class="ghost-btn" @click="closeApiOnboarding">知道了，稍后再说</button>
+        </div>
+      </article>
+    </div>
+
+    <div v-if="showSettingsGuide" class="modal-mask">
+      <article class="paper-card modal-panel settings-guide-panel">
+        <div class="modal-title">
+          <div>
+            <p class="eyebrow">设置引导</p>
+            <h3>这三个设置分别做什么</h3>
+          </div>
+          <button type="button" class="icon-btn" @click="closeSettingsGuide">×</button>
+        </div>
+        <div class="guide-step-list">
+          <article>
+            <strong>1. 先配置反馈生成模型</strong>
+            <span>这是生成课后反馈初稿的核心配置。优先完成它，后面就能在学生页面生成反馈。</span>
+          </article>
+          <article>
+            <strong>2. 按需配置图片识别模型</strong>
+            <span>它只负责看图片、提炼课堂资料。不需要上传图片识别时，可以先跳过。</span>
+          </article>
+          <article>
+            <strong>3. 可选配置个人风格样例</strong>
+            <span>样例越贴近你的日常表达，AI 写出来的反馈就越像你的口吻。</span>
+          </article>
+        </div>
+        <div class="button-row danger-row">
+          <button type="button" class="primary-btn" @click="goToFeedbackSettingsFromGuide">去配置反馈生成模型</button>
+          <button type="button" class="ghost-btn" @click="closeSettingsGuide">知道了</button>
+        </div>
+      </article>
+    </div>
+
+    <div v-if="showCreateModal" class="modal-mask">
       <form class="paper-card modal-panel feedback-editor" @submit.prevent="saveFeedback">
         <div class="modal-title"><h3>新增课后反馈</h3><button type="button" class="icon-btn" @click="closeCreateFeedback">×</button></div>
         <label>上课时间<input v-model="feedbackForm.lesson_time" type="datetime-local" /></label>
-        <label>课程内容简述<textarea v-model="feedbackForm.lesson_summary" class="auto-textarea" @input="autoResize"></textarea></label>
-        <label>课堂表现简述<textarea v-model="feedbackForm.performance_summary" class="auto-textarea" @input="autoResize"></textarea></label>
-        <div class="button-row"><button type="button" class="ghost-btn" :disabled="loading" @click="generateDraft">生成 AI 初稿</button><button class="primary-btn" :disabled="loading">保存最终反馈</button></div>
+        <label>反馈标题<input v-model="feedbackForm.lesson_title" placeholder="例如：小明第3次数学课，生成时会自动补上（5.5）" /></label>
+        <label>生成模式
+          <select v-model="feedbackForm.format_mode">
+            <option value="structured">结构化反馈</option>
+            <option value="free_style">自由风格</option>
+          </select>
+          <small>{{ feedbackForm.format_mode === 'structured' ? '按四段结构输出，适合统一规范。' : '不强制四段标题，会更多参考你的个人风格样例。' }}</small>
+        </label>
+        <label>1. 课堂学习内容<textarea v-model="feedbackForm.lesson_summary" class="auto-textarea" placeholder="写本节课学习的知识点、题型、方法，方便 AI 整理成复习清单" @input="autoResize"></textarea></label>
+        <section class="materials-panel">
+          <div class="materials-header">
+            <div>
+              <strong>导入课堂资料照片</strong>
+              <small>最多 {{ MAX_MATERIAL_IMAGES }} 张，支持 JPG、PNG、WEBP；适合试卷页、习题集、讲义、错题照片、课堂练习截图。尽量拍清题干、批改痕迹和页码。</small>
+            </div>
+            <div class="button-row">
+              <label class="file-picker-btn">
+                选择图片
+                <input ref="materialInput" type="file" accept="image/jpeg,image/png,image/webp" multiple @change="handleMaterialFiles" />
+              </label>
+              <button type="button" class="ghost-btn" :disabled="!materialImages.length || materialsAnalyzing" @click="clearMaterialImages">清空</button>
+            </div>
+          </div>
+
+          <div v-if="materialImages.length" class="material-preview-grid">
+            <article v-for="(image, index) in materialImages" :key="image.id" class="material-preview-item">
+              <img :src="image.preview_url" alt="" />
+              <div>
+                <strong>{{ image.file.name }}</strong>
+                <small>{{ formatFileSize(image.file.size) }}</small>
+              </div>
+              <button type="button" class="icon-btn" :disabled="materialsAnalyzing" @click="removeMaterialImage(index)">×</button>
+            </article>
+          </div>
+
+          <div class="button-row">
+            <button type="button" class="ghost-btn" :disabled="!materialImages.length || materialsAnalyzing" @click="analyzeMaterialImages">
+              {{ materialsAnalyzing ? '正在识别课堂资料...' : '识别并提炼课堂内容' }}
+            </button>
+          </div>
+
+          <section v-if="materialAnalysis" class="analysis-result-panel">
+            <div class="analysis-result-header">
+              <strong>课堂资料提炼结果</strong>
+              <button type="button" class="primary-btn" @click="applyMaterialAnalysis">填入课堂学习内容</button>
+            </div>
+            <p v-if="materialAnalysis.practice_summary">{{ materialAnalysis.practice_summary }}</p>
+            <div class="analysis-columns">
+              <div v-if="materialAnalysis.knowledge_points?.length">
+                <strong>知识点</strong>
+                <span v-for="item in materialAnalysis.knowledge_points" :key="item">{{ item }}</span>
+              </div>
+              <div v-if="materialAnalysis.question_types?.length">
+                <strong>题型</strong>
+                <span v-for="item in materialAnalysis.question_types" :key="item">{{ item }}</span>
+              </div>
+              <div v-if="materialAnalysis.weak_points?.length">
+                <strong>易错点/薄弱点</strong>
+                <span v-for="item in materialAnalysis.weak_points" :key="item">{{ item }}</span>
+              </div>
+            </div>
+          </section>
+        </section>
+        <label>2. 课堂表现与知识掌握情况<textarea v-model="feedbackForm.performance_summary" class="auto-textarea" placeholder="写学生状态、掌握得好的地方、需要关注的问题" @input="autoResize"></textarea></label>
+        <label>3. 课后建议<textarea v-model="feedbackForm.advice_summary" class="auto-textarea" placeholder="写你想给学生/家长的具体建议，AI 会润色成可执行方案" @input="autoResize"></textarea></label>
+        <label>4. 作业安排<textarea v-model="feedbackForm.homework_plan" class="auto-textarea" placeholder="严格填写本次需要布置给学生的作业，AI 只润色不新增" @input="autoResize"></textarea></label>
+        <p class="guide-hint">“我问你答”适合没思路时使用。你可以先写几个关键词，也可以先空着，AI 会像助教一样提问；你回答后再把素材填入上方输入框。</p>
+        <div class="button-row"><button type="button" class="ghost-btn" :disabled="loading" @click="createGuideQuestions">我问你答</button><button type="button" class="ghost-btn" :disabled="loading" @click="generateDraft">生成 AI 初稿</button><button class="primary-btn" :disabled="loading">保存最终反馈</button></div>
+        <section v-if="guideItems.length" class="guide-panel">
+          <div class="guide-header"><strong>回答这些问题，补全反馈素材</strong><button type="button" class="ghost-btn" @click="mergeGuideAnswers">把回答填入上方</button></div>
+          <label v-for="item in guideItems" :key="item.question">{{ item.question }}
+            <textarea v-model="item.answer" class="auto-textarea" @input="autoResize"></textarea>
+          </label>
+        </section>
         <label>AI 初稿<textarea v-model="feedbackForm.ai_draft" class="auto-textarea large-text" @input="autoResize"></textarea></label>
         <label>最终反馈<textarea v-model="feedbackForm.final_feedback" class="auto-textarea final-text" @input="autoResize"></textarea></label>
       </form>
     </div>
 
-    <div v-if="detailFeedback" class="modal-mask" @click.self="closeFeedbackDetail">
+    <div v-if="detailFeedback" class="modal-mask">
       <article class="paper-card modal-panel feedback-detail-modal">
         <div class="modal-title"><h3>反馈详情</h3><button type="button" class="icon-btn" @click="closeFeedbackDetail">×</button></div>
         <template v-if="!isEditingDetail">
-          <p><strong>上课时间：</strong>{{ detailFeedback.lesson_time }}</p><p><strong>课程内容：</strong>{{ detailFeedback.lesson_summary }}</p><p><strong>课堂表现：</strong>{{ detailFeedback.performance_summary || '未填写' }}</p><h4>最终反馈</h4><pre>{{ detailFeedback.final_feedback }}</pre><details><summary>查看 AI 初稿</summary><pre>{{ detailFeedback.ai_draft }}</pre></details>
-          <div class="button-row danger-row"><button class="ghost-btn" @click="isEditingDetail = true; assignFeedback(editForm, detailFeedback); resizeAllTextareas()">编辑反馈</button><button class="danger-btn" @click="deleteFeedback">删除反馈</button></div>
+          <p><strong>反馈标题：</strong>{{ detailFeedback.lesson_title || '未填写' }}</p><p><strong>上课时间：</strong>{{ detailFeedback.lesson_time }}</p><p><strong>课堂学习内容：</strong>{{ detailFeedback.lesson_summary }}</p><p><strong>课堂表现与知识掌握：</strong>{{ detailFeedback.performance_summary || '未填写' }}</p><p><strong>课后建议：</strong>{{ detailFeedback.advice_summary || '未填写' }}</p><p><strong>作业安排：</strong>{{ detailFeedback.homework_plan || '未填写' }}</p><h4>最终反馈</h4><pre>{{ detailFeedback.final_feedback }}</pre><details><summary>查看 AI 初稿</summary><pre>{{ detailFeedback.ai_draft }}</pre></details>
+          <div class="button-row danger-row"><div class="button-row"><button class="ghost-btn" @click="isEditingDetail = true; assignFeedback(editForm, detailFeedback); resizeAllTextareas()">编辑反馈</button><button class="ghost-btn" @click="addCurrentFeedbackAsStyleExample">设为风格样例</button></div><button class="danger-btn" @click="deleteFeedback">删除反馈</button></div>
         </template>
         <form v-else class="feedback-editor" @submit.prevent="saveFeedbackEdit">
-          <label>上课时间<input v-model="editForm.lesson_time" type="datetime-local" /></label><label>课程内容简述<textarea v-model="editForm.lesson_summary" class="auto-textarea" @input="autoResize"></textarea></label><label>课堂表现简述<textarea v-model="editForm.performance_summary" class="auto-textarea" @input="autoResize"></textarea></label><label>AI 初稿<textarea v-model="editForm.ai_draft" class="auto-textarea large-text" @input="autoResize"></textarea></label><label>最终反馈<textarea v-model="editForm.final_feedback" class="auto-textarea final-text" @input="autoResize"></textarea></label>
+          <label>上课时间<input v-model="editForm.lesson_time" type="datetime-local" /></label><label>反馈标题<input v-model="editForm.lesson_title" /></label><label>1. 课堂学习内容<textarea v-model="editForm.lesson_summary" class="auto-textarea" @input="autoResize"></textarea></label><label>2. 课堂表现与知识掌握情况<textarea v-model="editForm.performance_summary" class="auto-textarea" @input="autoResize"></textarea></label><label>3. 课后建议<textarea v-model="editForm.advice_summary" class="auto-textarea" @input="autoResize"></textarea></label><label>4. 作业安排<textarea v-model="editForm.homework_plan" class="auto-textarea" @input="autoResize"></textarea></label><label>AI 初稿<textarea v-model="editForm.ai_draft" class="auto-textarea large-text" @input="autoResize"></textarea></label><label>最终反馈<textarea v-model="editForm.final_feedback" class="auto-textarea final-text" @input="autoResize"></textarea></label>
           <div class="button-row"><button class="primary-btn">保存修改</button><button class="ghost-btn" type="button" @click="isEditingDetail = false">取消</button></div>
         </form>
       </article>
     </div>
 
-    <div v-if="showOneStudentEditModal" class="modal-mask" @click.self="showOneStudentEditModal = false">
+    <div v-if="showOneStudentEditModal" class="modal-mask">
       <form class="paper-card modal-panel feedback-editor" @submit.prevent="saveOneStudentEdit">
         <div class="modal-title"><h3>编辑一对一学生</h3><button type="button" class="icon-btn" @click="showOneStudentEditModal = false">×</button></div>
         <input v-model="oneStudentForm.name" placeholder="学生姓名" /><input v-model="oneStudentForm.grade" placeholder="年级" /><input v-model="oneStudentForm.subject" placeholder="科目" /><textarea v-model="oneStudentForm.note" class="auto-textarea" placeholder="备注" @input="autoResize"></textarea>
@@ -959,7 +1743,7 @@ onMounted(async () => {
       </form>
     </div>
 
-    <div v-if="showClassModal" class="modal-mask" @click.self="showClassModal = false">
+    <div v-if="showClassModal" class="modal-mask">
       <form class="paper-card modal-panel feedback-editor" @submit.prevent="saveClass">
         <div class="modal-title"><h3>{{ editingClass ? '编辑班级' : '新建班级' }}</h3><button type="button" class="icon-btn" @click="showClassModal = false">×</button></div>
         <input v-model="classForm.name" placeholder="班级名称" /><textarea v-model="classForm.note" class="auto-textarea" placeholder="备注" @input="autoResize"></textarea>
@@ -967,7 +1751,7 @@ onMounted(async () => {
       </form>
     </div>
 
-    <div v-if="showBulkModal" class="modal-mask" @click.self="showBulkModal = false">
+    <div v-if="showBulkModal" class="modal-mask">
       <form class="paper-card modal-panel feedback-editor" @submit.prevent="bulkCreateEveningStudents">
         <div class="modal-title"><h3>批量录入学生</h3><button type="button" class="icon-btn" @click="showBulkModal = false">×</button></div>
         <label>学生名单<textarea v-model="bulkForm.names_text" class="auto-textarea final-text" placeholder="一行一个姓名" @input="autoResize"></textarea></label>
@@ -975,7 +1759,7 @@ onMounted(async () => {
       </form>
     </div>
 
-    <div v-if="showEveningStudentModal" class="modal-mask" @click.self="showEveningStudentModal = false">
+    <div v-if="showEveningStudentModal" class="modal-mask">
       <form class="paper-card modal-panel feedback-editor" @submit.prevent="saveEveningStudentEdit">
         <div class="modal-title"><h3>编辑晚辅学生</h3><button type="button" class="icon-btn" @click="showEveningStudentModal = false">×</button></div>
         <input v-model="eveningStudentForm.name" placeholder="姓名" /><input v-model="eveningStudentForm.grade" placeholder="年级" /><input v-model="eveningStudentForm.school" placeholder="学校" /><textarea v-model="eveningStudentForm.note" class="auto-textarea" placeholder="备注" @input="autoResize"></textarea>
@@ -983,9 +1767,9 @@ onMounted(async () => {
       </form>
     </div>
 
-    <div v-if="showMonthlyModal" class="modal-mask" @click.self="showMonthlyModal = false">
+    <div v-if="showMonthlyModal" class="modal-mask">
       <form class="paper-card modal-panel feedback-editor" @submit.prevent="saveMonthlyFeedback">
-        <div class="modal-title"><h3>新增月度反馈</h3><button type="button" class="icon-btn" @click="showMonthlyModal = false">×</button></div>
+        <div class="modal-title"><h3>新增月度反馈</h3><button type="button" class="icon-btn" @click="closeMonthlyModal">×</button></div>
         <label>反馈月份<input v-model="monthlyForm.feedback_month" type="month" /></label>
         <label>本月作业完成情况简述<textarea v-model="monthlyForm.homework_summary" class="auto-textarea" @input="autoResize"></textarea></label>
         <div class="button-row"><button type="button" class="ghost-btn" @click="generateMonthlyDraft">生成 AI 初稿</button><button class="primary-btn">保存月度反馈</button></div>
@@ -993,7 +1777,7 @@ onMounted(async () => {
       </form>
     </div>
 
-    <div v-if="eveningDetail" class="modal-mask" @click.self="eveningDetail = null">
+    <div v-if="eveningDetail" class="modal-mask">
       <article class="paper-card modal-panel feedback-detail-modal">
         <div class="modal-title"><h3>月度反馈详情</h3><button type="button" class="icon-btn" @click="eveningDetail = null">×</button></div>
         <template v-if="!isEditingEveningDetail">

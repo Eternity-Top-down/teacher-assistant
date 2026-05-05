@@ -56,9 +56,12 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 teacher_id INTEGER NOT NULL,
                 student_id INTEGER NOT NULL,
+                lesson_title TEXT NOT NULL DEFAULT '',
                 lesson_time TEXT NOT NULL,
                 lesson_summary TEXT NOT NULL,
                 performance_summary TEXT NOT NULL DEFAULT '',
+                advice_summary TEXT NOT NULL DEFAULT '',
+                homework_plan TEXT NOT NULL DEFAULT '',
                 ai_draft TEXT NOT NULL,
                 final_feedback TEXT NOT NULL,
                 created_at TEXT NOT NULL,
@@ -113,9 +116,53 @@ def init_db() -> None:
                 base_url TEXT NOT NULL,
                 model TEXT NOT NULL,
                 encrypted_api_key TEXT NOT NULL DEFAULT '',
+                feedback_format_mode TEXT NOT NULL DEFAULT 'structured',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS teacher_vision_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                teacher_id INTEGER NOT NULL UNIQUE,
+                provider TEXT NOT NULL DEFAULT 'doubao_v',
+                base_url TEXT NOT NULL,
+                model TEXT NOT NULL,
+                encrypted_api_key TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS teacher_style_examples (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                teacher_id INTEGER NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                content TEXT NOT NULL,
+                source_type TEXT NOT NULL DEFAULT 'manual',
+                source_feedback_id INTEGER,
+                enabled INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE
             );
             """
         )
+        columns = {
+            row["name"]
+            for row in db.execute("PRAGMA table_info(feedbacks)").fetchall()
+        }
+        if "homework_plan" not in columns:
+            db.execute("ALTER TABLE feedbacks ADD COLUMN homework_plan TEXT NOT NULL DEFAULT ''")
+        if "lesson_title" not in columns:
+            db.execute("ALTER TABLE feedbacks ADD COLUMN lesson_title TEXT NOT NULL DEFAULT ''")
+        if "advice_summary" not in columns:
+            db.execute("ALTER TABLE feedbacks ADD COLUMN advice_summary TEXT NOT NULL DEFAULT ''")
+        settings_columns = {
+            row["name"]
+            for row in db.execute("PRAGMA table_info(teacher_ai_settings)").fetchall()
+        }
+        if "feedback_format_mode" not in settings_columns:
+            db.execute(
+                "ALTER TABLE teacher_ai_settings ADD COLUMN feedback_format_mode TEXT NOT NULL DEFAULT 'structured'"
+            )
