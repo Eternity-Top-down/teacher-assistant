@@ -1,12 +1,17 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { clearToken, request, setToken } from './api'
-import authWelcomeArt from './assets/illustrations/auth-welcome.jpg'
+import authHeroArt from './assets/illustrations/auth-hero-crayon.png'
 import dashboardBannerArt from './assets/illustrations/dashboard-banner.jpg'
 import emptyStateArt from './assets/illustrations/empty-state.jpg'
 import eveningStickerArt from './assets/illustrations/evening-sticker.jpg'
+import createFeedbackArt from './assets/illustrations/create-feedback-crayon.png'
+import copyFeedbackArt from './assets/illustrations/copy-feedback-crayon.png'
+import historyFeedbackArt from './assets/illustrations/history-feedback-crayon.png'
 import oneOnOneStickerArt from './assets/illustrations/one-on-one-sticker.jpg'
-import sidebarGardenArt from './assets/illustrations/sidebar-garden.jpg'
+import sidebarCampusArt from './assets/illustrations/sidebar-campus-crayon.png'
+import sidebarDoodleArt from './assets/illustrations/sidebar-doodle-crayon.png'
+import sidebarLogoArt from './assets/illustrations/sidebar-logo-crayon.png'
 
 const teacher = ref(null)
 const route = ref(window.location.hash || '#/one-on-one')
@@ -23,6 +28,7 @@ const showCreateModal = ref(false)
 const showStudentModal = ref(false)
 const showOneStudentEditModal = ref(false)
 const isEditingDetail = ref(false)
+const copiedFeedbackId = ref(null)
 
 const eveningClasses = ref([])
 const currentClass = ref(null)
@@ -1151,7 +1157,10 @@ function fallbackCopyText(text) {
 
 async function copyFeedbackText(text) {
   const content = String(text || '').trim()
-  if (!content) return showMessage('请先生成或填写反馈内容')
+  if (!content) {
+    showMessage('请先生成或填写反馈内容')
+    return false
+  }
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(content)
@@ -1159,10 +1168,24 @@ async function copyFeedbackText(text) {
       throw new Error('copy failed')
     }
     showMessage('最终反馈已复制')
+    return true
   } catch {
-    if (fallbackCopyText(content)) showMessage('最终反馈已复制')
-    else showMessage('复制失败，请手动选择复制')
+    if (fallbackCopyText(content)) {
+      showMessage('最终反馈已复制')
+      return true
+    }
+    showMessage('复制失败，请手动选择复制')
+    return false
   }
+}
+
+async function copyFeedbackCard(feedback) {
+  const copied = await copyFeedbackText(feedback.final_feedback)
+  if (!copied) return
+  copiedFeedbackId.value = feedback.id
+  window.setTimeout(() => {
+    if (copiedFeedbackId.value === feedback.id) copiedFeedbackId.value = null
+  }, 1800)
 }
 
 async function openFeedbackDetail(feedback) {
@@ -1493,15 +1516,15 @@ onMounted(async () => {
   <main class="page-shell" @click="closeAccountMenu">
     <section v-if="currentView === 'auth'" class="auth-page">
       <div class="auth-illustration">
-        <img class="auth-art" :src="authWelcomeArt" alt="" aria-hidden="true" />
-        <div class="doodle-sky" aria-hidden="true">
-          <span>☀</span><span>✦</span><span>☁</span>
+        <div class="auth-copy">
+          <p class="eyebrow">Teacher Assistant</p>
+          <h1>教师工作记录助手</h1>
+          <p>把一对一课后反馈和晚辅月度作业反馈，整理进一个清晰、温暖、好维护的工作台。</p>
+          <div class="doodle-row" aria-hidden="true"><span>✎</span><span>▤</span><span>♡</span><span>☆</span></div>
         </div>
-        <p class="eyebrow">Teacher Assistant</p>
-        <h1>教师工作记录助手</h1>
-        <p>一对一课后反馈和晚辅月度作业反馈，都放进同一个清晰的工作台。</p>
-        <div class="doodle-board"><span class="line-icon book"></span><strong>今日小目标</strong><em>记录学生成长</em></div>
-        <div class="doodle-row" aria-hidden="true"><span>✎</span><span>▤</span><span>♡</span><span>☆</span></div>
+        <div class="auth-art-panel" aria-hidden="true">
+          <img class="auth-art" :src="authHeroArt" alt="" />
+        </div>
       </div>
       <form class="paper-card auth-card" @submit.prevent="authMode === 'login' ? login() : register()">
         <div class="paper-clip" aria-hidden="true"></div>
@@ -1521,13 +1544,13 @@ onMounted(async () => {
 
     <section v-else class="app-layout">
       <aside class="sidebar">
-        <div class="brand"><span class="logo-mark"></span><strong>教师助手</strong></div>
-        <div class="side-doodle" aria-hidden="true"><span class="mini-pencil"></span><span>✦</span><span class="mini-book"></span></div>
+        <div class="brand"><img class="brand-logo" :src="sidebarLogoArt" alt="" aria-hidden="true" /><strong>教师助手</strong></div>
+        <img class="side-doodle-art" :src="sidebarDoodleArt" alt="" aria-hidden="true" />
         <nav class="module-nav" aria-label="业务导航">
           <button class="nav-button" :class="{ active: currentView.startsWith('one') }" @click="go('#/one-on-one')">一对一</button>
           <button class="nav-button" :class="{ active: currentView.startsWith('evening') }" @click="go('#/evening')">晚辅</button>
         </nav>
-        <img class="sidebar-art" :src="sidebarGardenArt" alt="" aria-hidden="true" />
+        <img class="sidebar-art" :src="sidebarCampusArt" alt="" aria-hidden="true" />
         <div class="account-area" @click.stop>
           <button class="account-button" type="button" :class="{ active: showAccountMenu || currentView === 'settings' }" @click="toggleAccountMenu">
             <span class="account-avatar">{{ teacherInitial }}</span>
@@ -1598,12 +1621,17 @@ onMounted(async () => {
             </div>
           </form>
           <div class="history-list">
-            <button v-for="feedback in feedbackSearchResults" :key="feedback.id" class="history-card feedback-search-card" type="button" @click="openFeedbackDetail(feedback)">
-              <strong>{{ feedback.student_name }} · {{ feedback.lesson_title || feedback.lesson_time }}</strong>
-              <span>{{ feedback.lesson_time }} · {{ feedback.grade || '未填年级' }} · {{ feedback.subject || '未填科目' }}</span>
-              <small>{{ shortText(feedback.lesson_summary, 72) }}</small>
-              <small>{{ shortText(feedback.final_feedback, 130) }}</small>
-            </button>
+            <article v-for="feedback in feedbackSearchResults" :key="feedback.id" class="history-card feedback-card feedback-search-card">
+              <button class="feedback-card-main" type="button" @click="openFeedbackDetail(feedback)">
+                <strong>{{ feedback.student_name }} · {{ feedback.lesson_title || feedback.lesson_time }}</strong>
+                <span>{{ feedback.lesson_time }} · {{ feedback.grade || '未填年级' }} · {{ feedback.subject || '未填科目' }}</span>
+                <small>{{ shortText(feedback.lesson_summary, 72) }}</small>
+                <small>{{ shortText(feedback.final_feedback, 130) }}</small>
+              </button>
+              <button class="copy-feedback-btn" :class="{ copied: copiedFeedbackId === feedback.id }" type="button" title="复制最终反馈" aria-label="复制最终反馈" @click.stop="copyFeedbackCard(feedback)">
+                <img class="copy-feedback-icon" :src="copyFeedbackArt" alt="" aria-hidden="true" />
+              </button>
+            </article>
             <div v-if="!feedbackSearchResults.length" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>这个时间段暂无一对一反馈。</span></div>
           </div>
         </section>
@@ -1616,10 +1644,15 @@ onMounted(async () => {
             <div class="button-row"><button class="ghost-btn" @click="openOneStudentEdit">编辑学生信息</button></div>
           </div>
           <div class="action-grid">
-            <button class="action-card" type="button" @click="openCreateFeedback"><span class="action-emoji">✏️</span><strong>新增课后反馈</strong><small>记录本次课程，生成并修改反馈正文</small></button>
-            <button class="action-card" type="button" @click="go(`#/one-on-one/students/${currentStudent.id}/history`)"><span class="line-icon notebook"></span><strong>查看历史反馈</strong><small>共 {{ feedbacks.length }} 条记录</small></button>
+            <button class="action-card" type="button" @click="openCreateFeedback"><img class="action-illustration" :src="createFeedbackArt" alt="" aria-hidden="true" /><strong>新增课后反馈</strong><small>记录本次课程，生成并修改反馈正文</small></button>
+            <button class="action-card" type="button" @click="go(`#/one-on-one/students/${currentStudent.id}/history`)"><img class="action-illustration" :src="historyFeedbackArt" alt="" aria-hidden="true" /><strong>查看历史反馈</strong><small>共 {{ feedbacks.length }} 条记录</small></button>
           </div>
-          <button v-if="feedbacks[0]" class="paper-card recent-card" type="button" @click="openFeedbackDetail(feedbacks[0])"><p class="eyebrow">最近一次反馈</p><h3>{{ feedbacks[0].lesson_time }}</h3><p>{{ shortText(feedbacks[0].final_feedback, 120) }}</p></button>
+          <article v-if="feedbacks[0]" class="history-card feedback-card recent-card">
+            <button class="feedback-card-main" type="button" @click="openFeedbackDetail(feedbacks[0])"><p class="eyebrow">最近一次反馈</p><h3>{{ feedbacks[0].lesson_time }}</h3><p>{{ shortText(feedbacks[0].final_feedback, 120) }}</p></button>
+            <button class="copy-feedback-btn" :class="{ copied: copiedFeedbackId === feedbacks[0].id }" type="button" title="复制最终反馈" aria-label="复制最终反馈" @click.stop="copyFeedbackCard(feedbacks[0])">
+              <img class="copy-feedback-icon" :src="copyFeedbackArt" alt="" aria-hidden="true" />
+            </button>
+          </article>
         </section>
 
         <section v-if="currentView === 'one-history' && currentStudent" class="history-page">
@@ -1635,7 +1668,12 @@ onMounted(async () => {
             <button type="button" class="ghost-btn" @click="clearStudentHistoryFilter">清空</button>
           </form>
           <div class="history-list">
-            <button v-for="feedback in filteredStudentFeedbacks" :key="feedback.id" class="history-card" type="button" @click="openFeedbackDetail(feedback)"><strong>{{ feedback.lesson_title || feedback.lesson_time }}</strong><span>{{ shortText(feedback.lesson_summary, 64) }}</span><small>{{ shortText(feedback.final_feedback, 110) }}</small></button>
+            <article v-for="feedback in filteredStudentFeedbacks" :key="feedback.id" class="history-card feedback-card">
+              <button class="feedback-card-main" type="button" @click="openFeedbackDetail(feedback)"><strong>{{ feedback.lesson_title || feedback.lesson_time }}</strong><span>{{ shortText(feedback.lesson_summary, 64) }}</span><small>{{ shortText(feedback.final_feedback, 110) }}</small></button>
+              <button class="copy-feedback-btn" :class="{ copied: copiedFeedbackId === feedback.id }" type="button" title="复制最终反馈" aria-label="复制最终反馈" @click.stop="copyFeedbackCard(feedback)">
+                <img class="copy-feedback-icon" :src="copyFeedbackArt" alt="" aria-hidden="true" />
+              </button>
+            </article>
             <div v-if="!feedbacks.length" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>暂无反馈记录。</span></div>
             <div v-else-if="!filteredStudentFeedbacks.length" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>该时间段暂无反馈记录。</span></div>
           </div>
