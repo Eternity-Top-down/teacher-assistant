@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import sqlite3
 
 import httpx
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from .ai_client import analyze_lesson_materials, generate_evening_monthly_feedback, generate_feedback, generate_feedback_guidance
@@ -654,6 +654,39 @@ def create_feedback(student_id: int, payload: FeedbackCreate, teacher: dict = Cu
         )
         feedback = db.execute("SELECT * FROM feedbacks WHERE id = ?", (cursor.lastrowid,)).fetchone()
     return {"feedback": dict(feedback)}
+
+
+@app.get("/api/feedbacks")
+def search_feedbacks(
+    start_date: str | None = Query(default=None),
+    end_date: str | None = Query(default=None),
+    teacher: dict = CurrentTeacher,
+):
+    conditions = ["f.teacher_id = ?"]
+    params: list[str | int] = [teacher["id"]]
+
+    if start_date:
+        conditions.append("f.lesson_time >= ?")
+        params.append(f"{start_date}T00:00")
+    if end_date:
+        conditions.append("f.lesson_time <= ?")
+        params.append(f"{end_date}T23:59:59")
+
+    with get_db() as db:
+        rows = db.execute(
+            f"""
+            SELECT
+                f.id, f.student_id, s.name AS student_name, s.grade, s.subject,
+                f.lesson_title, f.lesson_time, f.lesson_summary, f.final_feedback,
+                f.created_at, f.updated_at
+            FROM feedbacks f
+            JOIN students s ON s.id = f.student_id AND s.teacher_id = f.teacher_id
+            WHERE {' AND '.join(conditions)}
+            ORDER BY f.lesson_time DESC, f.id DESC
+            """,
+            params,
+        ).fetchall()
+    return {"feedbacks": [dict(row) for row in rows]}
 
 
 @app.get("/api/feedbacks/{feedback_id}")

@@ -17,6 +17,7 @@ const authMode = ref('login')
 const oneStudents = ref([])
 const currentStudent = ref(null)
 const feedbacks = ref([])
+const feedbackSearchResults = ref([])
 const detailFeedback = ref(null)
 const showCreateModal = ref(false)
 const showStudentModal = ref(false)
@@ -46,6 +47,11 @@ const materialInput = ref(null)
 const materialImages = ref([])
 const materialAnalysis = ref(null)
 const materialsAnalyzing = ref(false)
+const feedbackDraftStatus = ref('')
+const hasSavedFeedbackDraft = ref(false)
+const feedbackSearchForm = reactive(defaultFeedbackSearchRange())
+const studentHistoryFilter = reactive({ start_date: '', end_date: '' })
+const feedbackPanels = reactive(defaultFeedbackPanels())
 
 const API_ONBOARDING_SEEN_KEY = 'api_onboarding_seen_v1'
 const SETTINGS_GUIDE_SEEN_KEY = 'settings_guide_seen_v1'
@@ -179,6 +185,7 @@ const selectedVisionPreset = computed(() => VISION_PRESETS[visionSettingsForm.pr
 const currentView = computed(() => {
   if (!isAuthed.value) return 'auth'
   if (route.value === '#/settings') return 'settings'
+  if (route.value === '#/one-on-one/feedbacks') return 'one-feedback-search'
   if (route.value.startsWith('#/evening/classes/')) return 'evening-class'
   if (route.value.startsWith('#/evening/students/')) return 'evening-student'
   if (route.value === '#/evening') return 'evening'
@@ -186,6 +193,9 @@ const currentView = computed(() => {
   if (route.value.startsWith('#/one-on-one/students/')) return 'one-student'
   return 'one-list'
 })
+const filteredStudentFeedbacks = computed(() =>
+  feedbacks.value.filter((feedback) => isDateInRange(feedback.lesson_time, studentHistoryFilter.start_date, studentHistoryFilter.end_date))
+)
 
 function newFeedback() {
   return {
@@ -203,6 +213,36 @@ function newFeedback() {
 
 function currentMonth() {
   return new Date().toISOString().slice(0, 7)
+}
+
+function dateInputValue(date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function defaultFeedbackSearchRange() {
+  const end = new Date()
+  const start = new Date()
+  start.setDate(end.getDate() - 30)
+  return {
+    start_date: dateInputValue(start),
+    end_date: dateInputValue(end),
+  }
+}
+
+function defaultFeedbackPanels() {
+  return {
+    lesson: true,
+    materials: true,
+    performance: true,
+    advice: true,
+    homework: true,
+    guide: true,
+    draft: true,
+    final: true,
+  }
 }
 
 function newMonthlyFeedback() {
@@ -311,18 +351,60 @@ function titleForGenerate(title, lessonTime) {
   return date ? `${base}（${date}）` : base
 }
 
+function lessonDateValue(lessonTime) {
+  const raw = String(lessonTime || '').replace(' ', 'T')
+  return raw.slice(0, 10)
+}
+
+function isDateInRange(lessonTime, startDate, endDate) {
+  const value = lessonDateValue(lessonTime)
+  if (!value) return false
+  if (startDate && value < startDate) return false
+  if (endDate && value > endDate) return false
+  return true
+}
+
+function searchRangeLabel(startDate, endDate) {
+  if (startDate && endDate) return `${startDate} 至 ${endDate}`
+  if (startDate) return `${startDate} 之后`
+  if (endDate) return `${endDate} 之前`
+  return '全部时间'
+}
+
+function resetFeedbackPanels() {
+  Object.assign(feedbackPanels, defaultFeedbackPanels())
+}
+
+function toggleFeedbackPanel(panel) {
+  feedbackPanels[panel] = !feedbackPanels[panel]
+  resizeAllTextareas()
+  saveFeedbackDraft()
+}
+
+function openFeedbackPanel(panel) {
+  feedbackPanels[panel] = true
+  resizeAllTextareas()
+  saveFeedbackDraft()
+}
+
+function resizeTextarea(textarea) {
+  const scrollContainer = textarea.closest('.modal-panel') || document.scrollingElement
+  const scrollTop = scrollContainer?.scrollTop || 0
+  textarea.style.height = 'auto'
+  textarea.style.height = `${textarea.scrollHeight}px`
+  if (scrollContainer) scrollContainer.scrollTop = scrollTop
+}
+
 function autoResize(event) {
   const textarea = event?.target
   if (!textarea) return
-  textarea.style.height = 'auto'
-  textarea.style.height = `${textarea.scrollHeight}px`
+  resizeTextarea(textarea)
 }
 
 async function resizeAllTextareas() {
   await nextTick()
   document.querySelectorAll('textarea.auto-textarea').forEach((textarea) => {
-    textarea.style.height = 'auto'
-    textarea.style.height = `${textarea.scrollHeight}px`
+    resizeTextarea(textarea)
   })
 }
 
@@ -342,17 +424,90 @@ function resetFeedbackForm() {
   assignFeedback(feedbackForm, newFeedback())
   guideItems.value = []
   clearMaterialImages()
+  feedbackDraftStatus.value = ''
 }
 
 function hasFeedbackDraft(form) {
   return Boolean(
-    form.lesson_summary.trim() ||
-      form.performance_summary.trim() ||
-      form.advice_summary.trim() ||
-      form.homework_plan.trim() ||
-      form.ai_draft.trim() ||
-      form.final_feedback.trim()
+    form.lesson_summary?.trim() ||
+      form.performance_summary?.trim() ||
+      form.advice_summary?.trim() ||
+      form.homework_plan?.trim() ||
+      form.ai_draft?.trim() ||
+      form.final_feedback?.trim()
   )
+}
+
+function currentFeedbackDraftKey() {
+  if (!teacher.value?.id || !currentStudent.value?.id) return ''
+  return `one_feedback_draft:${teacher.value.id}:${currentStudent.value.id}`
+}
+
+function feedbackDraftHasContent(draft) {
+  return Boolean(
+    hasFeedbackDraft(draft?.feedback || {}) ||
+      (draft?.guide_items || []).some((item) => item.answer?.trim()) ||
+      draft?.material_analysis
+  )
+}
+
+function readFeedbackDraft() {
+  const key = currentFeedbackDraftKey()
+  if (!key) return null
+  try {
+    const raw = localStorage.getItem(key)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+function refreshFeedbackDraftState() {
+  hasSavedFeedbackDraft.value = feedbackDraftHasContent(readFeedbackDraft())
+}
+
+function saveFeedbackDraft() {
+  const key = currentFeedbackDraftKey()
+  if (!key || !showCreateModal.value) return
+  const draft = {
+    feedback: { ...feedbackForm },
+    guide_items: guideItems.value.map((item) => ({ ...item })),
+    feedback_panels: { ...feedbackPanels },
+    material_analysis: materialAnalysis.value,
+    updated_at: new Date().toISOString(),
+  }
+  try {
+    localStorage.setItem(key, JSON.stringify(draft))
+    hasSavedFeedbackDraft.value = feedbackDraftHasContent(draft)
+    feedbackDraftStatus.value = '草稿已自动保存'
+  } catch {
+    feedbackDraftStatus.value = '草稿保存失败，请先复制重要内容'
+  }
+}
+
+function applyFeedbackDraft(draft) {
+  if (!draft?.feedback) return
+  assignFeedback(feedbackForm, draft.feedback)
+  guideItems.value = Array.isArray(draft.guide_items) ? draft.guide_items.map((item) => ({ ...item })) : []
+  Object.assign(feedbackPanels, defaultFeedbackPanels(), draft.feedback_panels || {})
+  clearMaterialImages()
+  materialAnalysis.value = draft.material_analysis || null
+  feedbackDraftStatus.value = '已恢复草稿'
+  hasSavedFeedbackDraft.value = true
+}
+
+function clearFeedbackDraft() {
+  const key = currentFeedbackDraftKey()
+  if (!key) return
+  localStorage.removeItem(key)
+  hasSavedFeedbackDraft.value = false
+  feedbackDraftStatus.value = ''
+}
+
+function clearCurrentFeedbackDraft() {
+  if (!window.confirm('确定清除这名学生的未保存草稿吗？当前表单内容会保留，但刷新后不能再恢复这份草稿。')) return
+  clearFeedbackDraft()
+  showMessage('草稿已清除')
 }
 
 function assignMonthly(target, source) {
@@ -635,6 +790,36 @@ async function loadOneStudents() {
   oneStudents.value = data.students
 }
 
+function feedbackSearchQuery() {
+  const params = new URLSearchParams()
+  if (feedbackSearchForm.start_date) params.set('start_date', feedbackSearchForm.start_date)
+  if (feedbackSearchForm.end_date) params.set('end_date', feedbackSearchForm.end_date)
+  const query = params.toString()
+  return query ? `/feedbacks?${query}` : '/feedbacks'
+}
+
+async function loadFeedbackSearchResults() {
+  loading.value = true
+  try {
+    const data = await request(feedbackSearchQuery())
+    feedbackSearchResults.value = data.feedbacks
+  } catch (error) {
+    showMessage(error.message)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function resetFeedbackSearch() {
+  Object.assign(feedbackSearchForm, defaultFeedbackSearchRange())
+  await loadFeedbackSearchResults()
+}
+
+function clearStudentHistoryFilter() {
+  studentHistoryFilter.start_date = ''
+  studentHistoryFilter.end_date = ''
+}
+
 async function createOneStudent() {
   if (!oneStudentForm.name.trim()) return showMessage('请填写学生姓名')
   loading.value = true
@@ -701,10 +886,17 @@ async function deleteOneStudent() {
 
 function openCreateFeedback() {
   resetFeedbackForm()
+  resetFeedbackPanels()
   const subject = currentStudent.value?.subject || '课程'
   const displayName = studentDisplayName(currentStudent.value?.name || '学生')
   feedbackForm.lesson_title = `${displayName}第${feedbacks.value.length + 1}次${subject}课`
   feedbackForm.format_mode = aiSettings.value?.feedback_format_mode || 'structured'
+  const draft = readFeedbackDraft()
+  if (feedbackDraftHasContent(draft) && window.confirm('检测到这名学生有未保存草稿，是否恢复？')) {
+    applyFeedbackDraft(draft)
+  } else {
+    refreshFeedbackDraftState()
+  }
   showCreateModal.value = true
   resizeAllTextareas()
 }
@@ -749,7 +941,9 @@ async function createGuideQuestions() {
       }),
     })
     guideItems.value = parseGuideQuestions(data.questions)
+    openFeedbackPanel('guide')
     await resizeAllTextareas()
+    saveFeedbackDraft()
     showMessage('已帮你梳理可补充的问题')
   } catch (error) {
     showMessage(error.message)
@@ -853,6 +1047,8 @@ async function analyzeMaterialImages() {
         images,
       }),
     })
+    openFeedbackPanel('materials')
+    saveFeedbackDraft()
     showMessage('课堂资料已识别完成')
   } catch (error) {
     showMessage(error.message)
@@ -865,7 +1061,9 @@ function applyMaterialAnalysis() {
   const suggestion = materialAnalysis.value?.lesson_summary_suggestion || ''
   if (!suggestion.trim()) return showMessage('暂无可填入的课堂学习内容')
   appendText('lesson_summary', suggestion)
+  openFeedbackPanel('lesson')
   resizeAllTextareas()
+  saveFeedbackDraft()
   showMessage('已填入课堂学习内容，可继续修改')
 }
 
@@ -881,6 +1079,7 @@ function mergeGuideAnswers() {
   })
   guideItems.value = []
   resizeAllTextareas()
+  saveFeedbackDraft()
   showMessage('补充要点已合并到表单')
 }
 
@@ -904,7 +1103,10 @@ async function generateDraft() {
     feedbackForm.ai_draft = data.draft
     feedbackForm.final_feedback = data.draft
     feedbackForm.lesson_title = titleForGenerate(feedbackForm.lesson_title, feedbackForm.lesson_time)
+    feedbackPanels.draft = true
+    feedbackPanels.final = true
     await resizeAllTextareas()
+    saveFeedbackDraft()
     showMessage('AI 初稿已生成')
   } catch (error) {
     showMessage(error.message)
@@ -922,13 +1124,44 @@ async function saveFeedback() {
       method: 'POST',
       body: JSON.stringify(feedbackForm),
     })
-    closeCreateFeedback()
+    clearFeedbackDraft()
+    showCreateModal.value = false
+    resetFeedbackForm()
     await loadOneStudentContext(true)
     showMessage('反馈已保存')
   } catch (error) {
     showMessage(error.message)
   } finally {
     loading.value = false
+  }
+}
+
+function fallbackCopyText(text) {
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  document.body.appendChild(textarea)
+  textarea.select()
+  const copied = document.execCommand('copy')
+  document.body.removeChild(textarea)
+  return copied
+}
+
+async function copyFeedbackText(text) {
+  const content = String(text || '').trim()
+  if (!content) return showMessage('请先生成或填写反馈内容')
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(content)
+    } else if (!fallbackCopyText(content)) {
+      throw new Error('copy failed')
+    }
+    showMessage('最终反馈已复制')
+  } catch {
+    if (fallbackCopyText(content)) showMessage('最终反馈已复制')
+    else showMessage('复制失败，请手动选择复制')
   }
 }
 
@@ -961,7 +1194,8 @@ async function saveFeedbackEdit() {
     })
     detailFeedback.value = data.feedback
     isEditingDetail.value = false
-    await loadOneStudentContext(true)
+    if (currentView.value === 'one-feedback-search') await loadFeedbackSearchResults()
+    else await loadOneStudentContext(true)
     showMessage('反馈已更新')
   } catch (error) {
     showMessage(error.message)
@@ -976,7 +1210,8 @@ async function deleteFeedback() {
   try {
     await request(`/feedbacks/${detailFeedback.value.id}`, { method: 'DELETE' })
     closeFeedbackDetail()
-    await loadOneStudentContext(true)
+    if (currentView.value === 'one-feedback-search') await loadFeedbackSearchResults()
+    else await loadOneStudentContext(true)
     showMessage('反馈已删除')
   } catch (error) {
     showMessage(error.message)
@@ -1227,6 +1462,7 @@ async function handleRoute() {
   if (!isAuthed.value) return
   try {
     if (currentView.value === 'one-list') await loadOneStudents()
+    if (currentView.value === 'one-feedback-search') await loadFeedbackSearchResults()
     if (currentView.value === 'one-student' || currentView.value === 'one-history') await loadOneStudentContext(true)
     if (currentView.value === 'evening') await loadEveningClasses()
     if (currentView.value === 'evening-class') await loadEveningClassContext()
@@ -1311,13 +1547,14 @@ onMounted(async () => {
           <div>
             <p class="eyebrow">{{ currentView === 'settings' ? '设置' : currentView.startsWith('evening') ? '晚辅' : '一对一' }}</p>
             <h2 v-if="currentView === 'one-list'">一对一学生</h2>
+            <h2 v-else-if="currentView === 'one-feedback-search'">反馈查询</h2>
             <h2 v-else-if="currentView === 'settings'">AI 模型配置</h2>
             <h2 v-else-if="currentView === 'evening'">晚辅班级</h2>
             <h2 v-else-if="currentView === 'evening-class'">{{ currentClass?.name || '晚辅班级' }}</h2>
             <h2 v-else-if="currentView === 'evening-student'">{{ currentEveningStudent?.name || '晚辅学生' }}</h2>
             <h2 v-else>{{ currentStudent?.name || '一对一学生' }}</h2>
           </div>
-          <button v-if="currentView === 'one-student' || currentView === 'one-history'" class="ghost-btn" @click="go('#/one-on-one')">返回一对一</button>
+          <button v-if="currentView === 'one-student' || currentView === 'one-history' || currentView === 'one-feedback-search'" class="ghost-btn" @click="go('#/one-on-one')">返回一对一</button>
           <button v-if="currentView === 'evening-class'" class="ghost-btn" @click="go('#/evening')">返回晚辅</button>
           <button v-if="currentView === 'evening-student'" class="ghost-btn" @click="go(`#/evening/classes/${currentEveningStudent?.class_id}`)">返回班级</button>
           <button v-if="currentView === 'settings'" class="ghost-btn" type="button" @click="openSettingsGuide">设置引导</button>
@@ -1331,6 +1568,7 @@ onMounted(async () => {
             <input v-model="oneStudentForm.subject" placeholder="科目，例如 数学" />
             <textarea v-model="oneStudentForm.note" class="auto-textarea" placeholder="备注" @input="autoResize"></textarea>
             <button class="primary-btn" :disabled="loading">添加到一对一</button>
+            <button type="button" class="ghost-btn" @click="go('#/one-on-one/feedbacks')">反馈查询</button>
           </form>
           <div class="student-list">
             <article v-for="student in oneStudents" :key="student.id" class="student-card" @click="go(`#/one-on-one/students/${student.id}`)">
@@ -1341,6 +1579,32 @@ onMounted(async () => {
               <small>{{ student.feedback_count }} 条一对一记录</small>
             </article>
             <div v-if="oneStudents.length === 0" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>还没有一对一学生。</span></div>
+          </div>
+        </section>
+
+        <section v-if="currentView === 'one-feedback-search'" class="history-page">
+          <form class="paper-card query-panel" @submit.prevent="loadFeedbackSearchResults">
+            <div>
+              <p class="eyebrow">Feedback Search</p>
+              <h3>按时间查找一对一反馈</h3>
+              <small>{{ searchRangeLabel(feedbackSearchForm.start_date, feedbackSearchForm.end_date) }} · {{ feedbackSearchResults.length }} 条结果</small>
+            </div>
+            <label>开始日期<input v-model="feedbackSearchForm.start_date" type="date" /></label>
+            <label>结束日期<input v-model="feedbackSearchForm.end_date" type="date" /></label>
+            <div class="button-row">
+              <button class="primary-btn" :disabled="loading">查询</button>
+              <button type="button" class="ghost-btn" :disabled="loading" @click="resetFeedbackSearch">最近 30 天</button>
+              <button type="button" class="ghost-btn" :disabled="loading" @click="feedbackSearchForm.start_date = ''; feedbackSearchForm.end_date = ''; loadFeedbackSearchResults()">清空</button>
+            </div>
+          </form>
+          <div class="history-list">
+            <button v-for="feedback in feedbackSearchResults" :key="feedback.id" class="history-card feedback-search-card" type="button" @click="openFeedbackDetail(feedback)">
+              <strong>{{ feedback.student_name }} · {{ feedback.lesson_title || feedback.lesson_time }}</strong>
+              <span>{{ feedback.lesson_time }} · {{ feedback.grade || '未填年级' }} · {{ feedback.subject || '未填科目' }}</span>
+              <small>{{ shortText(feedback.lesson_summary, 72) }}</small>
+              <small>{{ shortText(feedback.final_feedback, 130) }}</small>
+            </button>
+            <div v-if="!feedbackSearchResults.length" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>这个时间段暂无一对一反馈。</span></div>
           </div>
         </section>
 
@@ -1355,14 +1619,25 @@ onMounted(async () => {
             <button class="action-card" type="button" @click="openCreateFeedback"><span class="action-emoji">✏️</span><strong>新增课后反馈</strong><small>记录本次课程，生成并修改反馈正文</small></button>
             <button class="action-card" type="button" @click="go(`#/one-on-one/students/${currentStudent.id}/history`)"><span class="line-icon notebook"></span><strong>查看历史反馈</strong><small>共 {{ feedbacks.length }} 条记录</small></button>
           </div>
-          <article v-if="feedbacks[0]" class="paper-card recent-card"><p class="eyebrow">最近一次反馈</p><h3>{{ feedbacks[0].lesson_time }}</h3><p>{{ shortText(feedbacks[0].final_feedback, 120) }}</p></article>
+          <button v-if="feedbacks[0]" class="paper-card recent-card" type="button" @click="openFeedbackDetail(feedbacks[0])"><p class="eyebrow">最近一次反馈</p><h3>{{ feedbacks[0].lesson_time }}</h3><p>{{ shortText(feedbacks[0].final_feedback, 120) }}</p></button>
         </section>
 
         <section v-if="currentView === 'one-history' && currentStudent" class="history-page">
           <div class="history-header"><div><p class="eyebrow">一对一历史反馈</p><h3>{{ currentStudent.name }} 的记录</h3></div><button class="primary-btn" @click="openCreateFeedback">新增反馈</button></div>
+          <form class="paper-card query-panel student-history-filter" @submit.prevent>
+            <div>
+              <p class="eyebrow">Time Filter</p>
+              <h3>按时间筛选</h3>
+              <small>{{ searchRangeLabel(studentHistoryFilter.start_date, studentHistoryFilter.end_date) }} · {{ filteredStudentFeedbacks.length }} / {{ feedbacks.length }} 条</small>
+            </div>
+            <label>开始日期<input v-model="studentHistoryFilter.start_date" type="date" /></label>
+            <label>结束日期<input v-model="studentHistoryFilter.end_date" type="date" /></label>
+            <button type="button" class="ghost-btn" @click="clearStudentHistoryFilter">清空</button>
+          </form>
           <div class="history-list">
-            <button v-for="feedback in feedbacks" :key="feedback.id" class="history-card" type="button" @click="openFeedbackDetail(feedback)"><strong>{{ feedback.lesson_title || feedback.lesson_time }}</strong><span>{{ shortText(feedback.lesson_summary, 64) }}</span><small>{{ shortText(feedback.final_feedback, 110) }}</small></button>
+            <button v-for="feedback in filteredStudentFeedbacks" :key="feedback.id" class="history-card" type="button" @click="openFeedbackDetail(feedback)"><strong>{{ feedback.lesson_title || feedback.lesson_time }}</strong><span>{{ shortText(feedback.lesson_summary, 64) }}</span><small>{{ shortText(feedback.final_feedback, 110) }}</small></button>
             <div v-if="!feedbacks.length" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>暂无反馈记录。</span></div>
+            <div v-else-if="!filteredStudentFeedbacks.length" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>该时间段暂无反馈记录。</span></div>
           </div>
         </section>
 
@@ -1639,8 +1914,17 @@ onMounted(async () => {
     </div>
 
     <div v-if="showCreateModal" class="modal-mask">
-      <form class="paper-card modal-panel feedback-editor" @submit.prevent="saveFeedback">
-        <div class="modal-title"><h3>新增课后反馈</h3><button type="button" class="icon-btn" @click="closeCreateFeedback">×</button></div>
+      <form class="paper-card modal-panel feedback-editor" @submit.prevent="saveFeedback" @input="saveFeedbackDraft" @change="saveFeedbackDraft">
+        <div class="modal-title">
+          <div>
+            <h3>新增课后反馈</h3>
+            <small class="draft-status">{{ feedbackDraftStatus || '草稿自动保存中' }}</small>
+          </div>
+          <div class="button-row">
+            <button v-if="hasSavedFeedbackDraft" type="button" class="ghost-btn" @click="clearCurrentFeedbackDraft">清除草稿</button>
+            <button type="button" class="icon-btn" @click="closeCreateFeedback">×</button>
+          </div>
+        </div>
         <label>上课时间<input v-model="feedbackForm.lesson_time" type="datetime-local" /></label>
         <label>反馈标题<input v-model="feedbackForm.lesson_title" placeholder="例如：小明第3次数学课，生成时会自动补上（5.5）" /></label>
         <label>生成模式
@@ -1650,74 +1934,109 @@ onMounted(async () => {
           </select>
           <small>{{ feedbackForm.format_mode === 'structured' ? '按四段结构输出，适合统一规范。' : '不强制四段标题，会更多参考你的个人风格样例。' }}</small>
         </label>
-        <label>1. 课堂学习内容<textarea v-model="feedbackForm.lesson_summary" class="auto-textarea" placeholder="写本节课学习的知识点、题型、方法，方便 AI 整理成复习清单" @input="autoResize"></textarea></label>
-        <section class="materials-panel">
-          <div class="materials-header">
-            <div>
-              <strong>导入课堂资料照片</strong>
-              <small>最多 {{ MAX_MATERIAL_IMAGES }} 张，支持 JPG、PNG、WEBP；适合试卷页、习题集、讲义、错题照片、课堂练习截图。尽量拍清题干、批改痕迹和页码。</small>
-            </div>
-            <div class="button-row">
-              <label class="file-picker-btn">
-                选择图片
-                <input ref="materialInput" type="file" accept="image/jpeg,image/png,image/webp" multiple @change="handleMaterialFiles" />
-              </label>
-              <button type="button" class="ghost-btn" :disabled="!materialImages.length || materialsAnalyzing" @click="clearMaterialImages">清空</button>
-            </div>
-          </div>
+        <section class="feedback-panel" :class="{ collapsed: !feedbackPanels.lesson }">
+          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('lesson')"><strong>1. 课堂学习内容</strong><span>{{ feedbackPanels.lesson ? '收起' : '展开' }}</span></button>
+          <label v-show="feedbackPanels.lesson"><textarea v-model="feedbackForm.lesson_summary" class="auto-textarea" placeholder="写本节课学习的知识点、题型、方法，方便 AI 整理成复习清单" @input="autoResize"></textarea></label>
+        </section>
 
-          <div v-if="materialImages.length" class="material-preview-grid">
-            <article v-for="(image, index) in materialImages" :key="image.id" class="material-preview-item">
-              <img :src="image.preview_url" alt="" />
+        <section class="feedback-panel materials-panel" :class="{ collapsed: !feedbackPanels.materials }">
+          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('materials')"><strong>导入课堂资料照片</strong><span>{{ feedbackPanels.materials ? '收起' : '展开' }}</span></button>
+          <div v-show="feedbackPanels.materials" class="feedback-panel-body">
+            <div class="materials-header">
               <div>
-                <strong>{{ image.file.name }}</strong>
-                <small>{{ formatFileSize(image.file.size) }}</small>
+                <strong>课堂资料照片</strong>
+                <small>最多 {{ MAX_MATERIAL_IMAGES }} 张，支持 JPG、PNG、WEBP；适合试卷页、习题集、讲义、错题照片、课堂练习截图。尽量拍清题干、批改痕迹和页码。</small>
               </div>
-              <button type="button" class="icon-btn" :disabled="materialsAnalyzing" @click="removeMaterialImage(index)">×</button>
-            </article>
-          </div>
-
-          <div class="button-row">
-            <button type="button" class="ghost-btn" :disabled="!materialImages.length || materialsAnalyzing" @click="analyzeMaterialImages">
-              {{ materialsAnalyzing ? '正在识别课堂资料...' : '识别并提炼课堂内容' }}
-            </button>
-          </div>
-
-          <section v-if="materialAnalysis" class="analysis-result-panel">
-            <div class="analysis-result-header">
-              <strong>课堂资料提炼结果</strong>
-              <button type="button" class="primary-btn" @click="applyMaterialAnalysis">填入课堂学习内容</button>
-            </div>
-            <p v-if="materialAnalysis.practice_summary">{{ materialAnalysis.practice_summary }}</p>
-            <div class="analysis-columns">
-              <div v-if="materialAnalysis.knowledge_points?.length">
-                <strong>知识点</strong>
-                <span v-for="item in materialAnalysis.knowledge_points" :key="item">{{ item }}</span>
-              </div>
-              <div v-if="materialAnalysis.question_types?.length">
-                <strong>题型</strong>
-                <span v-for="item in materialAnalysis.question_types" :key="item">{{ item }}</span>
-              </div>
-              <div v-if="materialAnalysis.weak_points?.length">
-                <strong>易错点/薄弱点</strong>
-                <span v-for="item in materialAnalysis.weak_points" :key="item">{{ item }}</span>
+              <div class="button-row">
+                <label class="file-picker-btn">
+                  选择图片
+                  <input ref="materialInput" type="file" accept="image/jpeg,image/png,image/webp" multiple @change="handleMaterialFiles" />
+                </label>
+                <button type="button" class="ghost-btn" :disabled="!materialImages.length || materialsAnalyzing" @click="clearMaterialImages">清空</button>
               </div>
             </div>
-          </section>
+
+            <div v-if="materialImages.length" class="material-preview-grid">
+              <article v-for="(image, index) in materialImages" :key="image.id" class="material-preview-item">
+                <img :src="image.preview_url" alt="" />
+                <div>
+                  <strong>{{ image.file.name }}</strong>
+                  <small>{{ formatFileSize(image.file.size) }}</small>
+                </div>
+                <button type="button" class="icon-btn" :disabled="materialsAnalyzing" @click="removeMaterialImage(index)">×</button>
+              </article>
+            </div>
+
+            <div class="button-row">
+              <button type="button" class="ghost-btn" :disabled="!materialImages.length || materialsAnalyzing" @click="analyzeMaterialImages">
+                {{ materialsAnalyzing ? '正在识别课堂资料...' : '识别并提炼课堂内容' }}
+              </button>
+            </div>
+
+            <section v-if="materialAnalysis" class="analysis-result-panel">
+              <div class="analysis-result-header">
+                <strong>课堂资料提炼结果</strong>
+                <button type="button" class="primary-btn" @click="applyMaterialAnalysis">填入课堂学习内容</button>
+              </div>
+              <p v-if="materialAnalysis.practice_summary">{{ materialAnalysis.practice_summary }}</p>
+              <div class="analysis-columns">
+                <div v-if="materialAnalysis.knowledge_points?.length">
+                  <strong>知识点</strong>
+                  <span v-for="item in materialAnalysis.knowledge_points" :key="item">{{ item }}</span>
+                </div>
+                <div v-if="materialAnalysis.question_types?.length">
+                  <strong>题型</strong>
+                  <span v-for="item in materialAnalysis.question_types" :key="item">{{ item }}</span>
+                </div>
+                <div v-if="materialAnalysis.weak_points?.length">
+                  <strong>易错点/薄弱点</strong>
+                  <span v-for="item in materialAnalysis.weak_points" :key="item">{{ item }}</span>
+                </div>
+              </div>
+            </section>
+          </div>
         </section>
-        <label>2. 课堂表现与知识掌握情况<textarea v-model="feedbackForm.performance_summary" class="auto-textarea" placeholder="写学生状态、掌握得好的地方、需要关注的问题" @input="autoResize"></textarea></label>
-        <label>3. 课后建议<textarea v-model="feedbackForm.advice_summary" class="auto-textarea" placeholder="写你想给学生/家长的具体建议，AI 会润色成可执行方案" @input="autoResize"></textarea></label>
-        <label>4. 作业安排<textarea v-model="feedbackForm.homework_plan" class="auto-textarea" placeholder="严格填写本次需要布置给学生的作业，AI 只润色不新增" @input="autoResize"></textarea></label>
-        <p class="guide-hint">“我问你答”适合没思路时使用。你可以先写几个关键词，也可以先空着，AI 会像助教一样提问；你回答后再把素材填入上方输入框。</p>
-        <div class="button-row"><button type="button" class="ghost-btn" :disabled="loading" @click="createGuideQuestions">我问你答</button><button type="button" class="ghost-btn" :disabled="loading" @click="generateDraft">生成 AI 初稿</button><button class="primary-btn" :disabled="loading">保存最终反馈</button></div>
-        <section v-if="guideItems.length" class="guide-panel">
-          <div class="guide-header"><strong>回答这些问题，补全反馈素材</strong><button type="button" class="ghost-btn" @click="mergeGuideAnswers">把回答填入上方</button></div>
-          <label v-for="item in guideItems" :key="item.question">{{ item.question }}
-            <textarea v-model="item.answer" class="auto-textarea" @input="autoResize"></textarea>
-          </label>
+
+        <section class="feedback-panel" :class="{ collapsed: !feedbackPanels.performance }">
+          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('performance')"><strong>2. 课堂表现与知识掌握情况</strong><span>{{ feedbackPanels.performance ? '收起' : '展开' }}</span></button>
+          <label v-show="feedbackPanels.performance"><textarea v-model="feedbackForm.performance_summary" class="auto-textarea" placeholder="写学生状态、掌握得好的地方、需要关注的问题" @input="autoResize"></textarea></label>
         </section>
-        <label>AI 初稿<textarea v-model="feedbackForm.ai_draft" class="auto-textarea large-text" @input="autoResize"></textarea></label>
-        <label>最终反馈<textarea v-model="feedbackForm.final_feedback" class="auto-textarea final-text" @input="autoResize"></textarea></label>
+
+        <section class="feedback-panel" :class="{ collapsed: !feedbackPanels.advice }">
+          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('advice')"><strong>3. 课后建议</strong><span>{{ feedbackPanels.advice ? '收起' : '展开' }}</span></button>
+          <label v-show="feedbackPanels.advice"><textarea v-model="feedbackForm.advice_summary" class="auto-textarea" placeholder="写你想给学生/家长的具体建议，AI 会润色成可执行方案" @input="autoResize"></textarea></label>
+        </section>
+
+        <section class="feedback-panel" :class="{ collapsed: !feedbackPanels.homework }">
+          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('homework')"><strong>4. 作业安排</strong><span>{{ feedbackPanels.homework ? '收起' : '展开' }}</span></button>
+          <label v-show="feedbackPanels.homework"><textarea v-model="feedbackForm.homework_plan" class="auto-textarea" placeholder="严格填写本次需要布置给学生的作业，AI 只润色不新增" @input="autoResize"></textarea></label>
+        </section>
+
+        <section class="feedback-panel" :class="{ collapsed: !feedbackPanels.guide }">
+          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('guide')"><strong>我问你答</strong><span>{{ feedbackPanels.guide ? '收起' : '展开' }}</span></button>
+          <div v-show="feedbackPanels.guide" class="feedback-panel-body">
+            <p class="guide-hint">“我问你答”适合没思路时使用。你可以先写几个关键词，也可以先空着，AI 会像助教一样提问；你回答后再把素材填入上方输入框。</p>
+            <div class="button-row"><button type="button" class="ghost-btn" :disabled="loading" @click="createGuideQuestions">生成补充问题</button></div>
+            <section v-if="guideItems.length" class="guide-panel">
+              <div class="guide-header"><strong>回答这些问题，补全反馈素材</strong><button type="button" class="ghost-btn" @click="mergeGuideAnswers">把回答填入上方</button></div>
+              <label v-for="item in guideItems" :key="item.question">{{ item.question }}
+                <textarea v-model="item.answer" class="auto-textarea" @input="autoResize"></textarea>
+              </label>
+            </section>
+          </div>
+        </section>
+
+        <section class="feedback-panel" :class="{ collapsed: !feedbackPanels.draft }">
+          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('draft')"><strong>AI 初稿</strong><span>{{ feedbackPanels.draft ? '收起' : '展开' }}</span></button>
+          <label v-show="feedbackPanels.draft"><textarea v-model="feedbackForm.ai_draft" class="auto-textarea large-text" @input="autoResize"></textarea></label>
+        </section>
+
+        <section class="feedback-panel" :class="{ collapsed: !feedbackPanels.final }">
+          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('final')"><strong>最终反馈</strong><span>{{ feedbackPanels.final ? '收起' : '展开' }}</span></button>
+          <label v-show="feedbackPanels.final"><textarea v-model="feedbackForm.final_feedback" class="auto-textarea final-text" @input="autoResize"></textarea></label>
+        </section>
+
+        <div class="button-row feedback-action-row"><button type="button" class="ghost-btn" :disabled="loading" @click="createGuideQuestions">我问你答</button><button type="button" class="ghost-btn" :disabled="loading" @click="generateDraft">生成 AI 初稿</button><button type="button" class="ghost-btn" :disabled="loading" @click="copyFeedbackText(feedbackForm.final_feedback)">复制最终反馈</button><button class="primary-btn" :disabled="loading">保存最终反馈</button></div>
       </form>
     </div>
 

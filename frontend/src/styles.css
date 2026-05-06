@@ -607,7 +607,7 @@ select:focus {
   position: fixed;
   right: 24px;
   bottom: 24px;
-  z-index: 20;
+  z-index: 60;
   max-width: min(420px, calc(100vw - 48px));
   padding: 15px 18px;
   border: 3px solid var(--orange);
@@ -662,9 +662,18 @@ select:focus {
 }
 
 .recent-card {
+  width: 100%;
   padding: 24px;
   border-color: var(--yellow);
+  color: var(--ink);
+  text-align: left;
   transform: rotate(-0.4deg);
+}
+
+.recent-card:hover,
+.recent-card:focus-visible {
+  border-color: var(--orange);
+  transform: rotate(0deg) translateY(-2px);
 }
 
 .history-header {
@@ -714,6 +723,33 @@ select:focus {
 .history-card small {
   color: var(--muted);
   line-height: 1.6;
+}
+
+.query-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(150px, 190px) minmax(150px, 190px) auto;
+  gap: 14px;
+  align-items: end;
+  padding: 20px;
+  border-color: var(--teal);
+}
+
+.query-panel h3 {
+  margin: 4px 0 6px;
+  color: #1f5f9b;
+}
+
+.query-panel small {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.student-history-filter {
+  grid-template-columns: minmax(220px, 1fr) minmax(150px, 190px) minmax(150px, 190px) auto;
+}
+
+.feedback-search-card strong {
+  overflow-wrap: anywhere;
 }
 
 .settings-page {
@@ -954,6 +990,14 @@ select:focus {
 
 .modal-title h3 {
   margin: 0;
+}
+
+.draft-status {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-weight: 800;
+  line-height: 1.4;
 }
 
 .feedback-detail-modal {
@@ -1881,6 +1925,60 @@ body::before {
   background: rgba(255, 253, 246, 0.76);
 }
 
+.feedback-panel {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 2px dashed rgba(63, 147, 222, 0.36);
+  border-radius: 16px 13px 17px 14px;
+  background: rgba(255, 253, 246, 0.68);
+}
+
+.feedback-panel.collapsed {
+  gap: 0;
+}
+
+.feedback-panel-header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  box-shadow: none;
+}
+
+.feedback-panel-header strong {
+  color: #1f5f9b;
+  font-size: 17px;
+}
+
+.feedback-panel-header span {
+  flex: 0 0 auto;
+  color: #2f7abd;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.feedback-panel-body {
+  display: grid;
+  gap: 12px;
+}
+
+.feedback-action-row {
+  position: sticky;
+  bottom: -2px;
+  z-index: 2;
+  padding: 12px 0 0;
+  background: linear-gradient(rgba(255, 253, 246, 0), #fffdf6 24%);
+}
+
 .materials-panel {
   display: grid;
   gap: 12px;
@@ -2122,6 +2220,11 @@ body::before {
   .analysis-result-header {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .query-panel,
+  .student-history-filter {
+    grid-template-columns: 1fr;
   }
 
   .analysis-columns {
