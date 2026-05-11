@@ -67,6 +67,7 @@ def fallback_feedback(
     performance_summary: str,
     advice_summary: str,
     homework_plan: str,
+    emphasis_summary: str = "",
 ) -> str:
     subject_name = subject or "数学"
     display_name = student_display_name(student_name)
@@ -75,6 +76,8 @@ def fallback_feedback(
     title = title_with_date(raw_title, lesson_date)
     performance = performance_summary or "老师本次未填写具体课堂表现，建议后续结合课堂观察继续补充。"
     advice = advice_summary or "课后建议围绕本节课内容及时复习，整理课堂中讲到的方法和容易出错的地方，再结合类似题型做巩固。"
+    if emphasis_summary:
+        advice = f"{advice}\n\n本次反馈可重点关注：{emphasis_summary}"
     homework = homework_plan or "本次老师未填写具体作业安排。"
     return f"""{title}
 
@@ -107,7 +110,7 @@ async def generate_feedback(
     performance_summary: str,
     advice_summary: str,
     homework_plan: str,
-    format_mode: str = "structured",
+    emphasis_summary: str = "",
     style_examples: list[dict] | None = None,
     ai_config: AIConfig | None = None,
 ) -> str:
@@ -128,6 +131,7 @@ async def generate_feedback(
             performance_summary,
             advice_summary,
             homework_plan,
+            emphasis_summary,
         )
 
     subject_name = subject or "数学"
@@ -140,6 +144,7 @@ async def generate_feedback(
         for index, example in enumerate(style_examples or [], start=1)
         if example.get("content", "").strip()
     )
+    has_style_examples = bool(style_text)
     emojis = pick_title_emojis()
     shared_rules = f"""
 你是一名一对一辅导老师，需要根据“本次课堂输入”直接写出可以发给家长的课后反馈正文。
@@ -162,7 +167,7 @@ async def generate_feedback(
 {examples}
 
 老师个人风格样例（只学语气和表达习惯，不学事实）：
-{style_text or "老师暂未提供个人风格样例。"}
+{style_text or "老师暂未提供个人风格样例，本次必须按标准四段结构生成。"}
 
 本次课堂输入：
 学生完整姓名：{student_name}
@@ -181,19 +186,23 @@ async def generate_feedback(
 
 作业安排：
 {homework_plan or "老师未填写具体作业安排。"}
+
+重点强调：
+{emphasis_summary or "老师未额外填写重点强调；请以四大板块事实为主生成。"}
 """.strip()
 
-    if format_mode == "free_style":
+    if has_style_examples:
         prompt = f"""
 {shared_rules}
 
-生成模式：自由风格。
+生成模式：个人风格。
 要求：
-1. 不强制使用四段标题，也不强制使用标题 emoji。
-2. 如果老师有个人风格样例，优先学习样例的排版、分段、语气和详略。
-3. 如果没有个人风格样例，请自然分段，写成适合微信发给家长的反馈。
-4. 可以保留清楚的小标题，但不要机械套用“课堂学习内容/课堂表现/课后建议/作业安排”四标题。
+1. 优先学习老师个人风格样例的排版、分段、语气、详略和常用表达习惯。
+2. 不强制使用四段标题，也不强制使用标题 emoji。
+3. 可以保留清楚的小标题，但不要机械套用“课堂学习内容/课堂表现/课后建议/作业安排”四标题。
+4. 必须覆盖本次课堂输入里的课程内容、课堂表现、课后建议和作业安排；如果某项没有输入，只能做保守说明。
 5. 如果老师填写了作业安排，必须体现；如果没有填写，不要编造作业。
+6. 如果老师填写了重点强调，只用于调整详略、语气和强调顺序，不得替代四大板块内容。
 """.strip()
     else:
         prompt = f"""
@@ -203,6 +212,7 @@ async def generate_feedback(
 额外规则：
 1. 标题前必须使用指定 emoji，每个标题前有且只有 1 个 emoji；正文不要额外大量添加 emoji。
 2. 作业安排如果未填写，第 4 段写“本次老师未填写具体作业安排。”
+3. 如果老师填写了重点强调，只能在覆盖四段内容的前提下调整重点，不得忽略任何一段。
 
 必须使用以下固定结构：
 {title}
@@ -237,56 +247,6 @@ async def generate_feedback(
         response = await client.post(
             f"{config.base_url.rstrip('/')}/chat/completions",
             headers={"Authorization": f"Bearer {config.api_key}"},
-            json=payload,
-        )
-        response.raise_for_status()
-        data = response.json()
-        return data["choices"][0]["message"]["content"].strip()
-
-
-async def generate_feedback_guidance(
-    student_name: str,
-    subject: str,
-    lesson_title: str,
-    lesson_summary: str,
-    performance_summary: str,
-    advice_summary: str,
-    homework_plan: str,
-    ai_config: AIConfig,
-) -> str:
-    subject_name = subject or "数学"
-    display_name = student_display_name(student_name)
-    prompt = f"""
-你是一名一对一辅导老师的备课助理。请根据老师已经填写的信息，提出 3-6 个补充问题，帮助老师把课后反馈写得更具体。
-
-要求：
-1. 只输出问题清单，每行一个问题。
-2. 问题要短、具体、方便老师直接回答。
-3. 覆盖这些方向中缺失或不够具体的部分：知识点、课堂状态、掌握较好的地方、需要关注的问题、课后建议、作业安排。
-4. 不要替老师编造事实，不要输出反馈正文。
-
-学生：{display_name}
-科目：{subject_name}
-反馈标题：{lesson_title or "未填写"}
-已填课程内容：{lesson_summary or "未填写"}
-已填课堂表现：{performance_summary or "未填写"}
-已填课后建议：{advice_summary or "未填写"}
-已填作业安排：{homework_plan or "未填写"}
-""".strip()
-
-    payload = {
-        "model": ai_config.model,
-        "messages": [
-            {"role": "system", "content": "你只输出帮助老师补充课堂事实的问题清单。"},
-            {"role": "user", "content": prompt},
-        ],
-        "temperature": 0.35,
-    }
-
-    async with httpx.AsyncClient(timeout=20) as client:
-        response = await client.post(
-            f"{ai_config.base_url.rstrip('/')}/chat/completions",
-            headers={"Authorization": f"Bearer {ai_config.api_key}"},
             json=payload,
         )
         response.raise_for_status()

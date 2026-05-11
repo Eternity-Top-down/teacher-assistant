@@ -1,5 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import * as pdfjsLib from 'pdfjs-dist'
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
 import { clearToken, request, setToken } from './api'
 import authHeroArt from './assets/illustrations/auth-hero-crayon.png'
 import dashboardBannerArt from './assets/illustrations/dashboard-banner.jpg'
@@ -12,6 +14,8 @@ import oneOnOneStickerArt from './assets/illustrations/one-on-one-sticker.jpg'
 import sidebarCampusArt from './assets/illustrations/sidebar-campus-crayon.png'
 import sidebarDoodleArt from './assets/illustrations/sidebar-doodle-crayon.png'
 import sidebarLogoArt from './assets/illustrations/sidebar-logo-crayon.png'
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 const teacher = ref(null)
 const route = ref(window.location.hash || '#/one-on-one')
@@ -45,16 +49,22 @@ const editingClass = ref(null)
 const aiSettings = ref(null)
 const visionSettings = ref(null)
 const styleExamples = ref([])
-const guideItems = ref([])
 const showAccountMenu = ref(false)
 const showApiOnboarding = ref(false)
 const showSettingsGuide = ref(false)
+const showFeedbackStyleModal = ref(false)
+const showMaterialsModal = ref(false)
 const materialInput = ref(null)
 const materialImages = ref([])
 const materialAnalysis = ref(null)
 const materialsAnalyzing = ref(false)
+const materialsConverting = ref(false)
+const classroomContentMode = ref('qa')
+const feedbackEmphasis = ref('')
 const feedbackDraftStatus = ref('')
 const hasSavedFeedbackDraft = ref(false)
+const styleExamplePage = ref(1)
+const feedbackStyleExamplePage = ref(1)
 const feedbackSearchForm = reactive(defaultFeedbackSearchRange())
 const studentHistoryFilter = reactive({ start_date: '', end_date: '' })
 const feedbackPanels = reactive(defaultFeedbackPanels())
@@ -63,7 +73,45 @@ const API_ONBOARDING_SEEN_KEY = 'api_onboarding_seen_v1'
 const SETTINGS_GUIDE_SEEN_KEY = 'settings_guide_seen_v1'
 const MAX_MATERIAL_IMAGES = 9
 const MAX_MATERIAL_IMAGE_SIZE = 8 * 1024 * 1024
+const MAX_MATERIAL_PDF_SIZE = 25 * 1024 * 1024
+const MAX_PDF_RENDER_WIDTH = 1500
 const MATERIAL_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
+const MATERIAL_PDF_TYPE = 'application/pdf'
+const MATERIAL_ACCEPT_TYPES = [...MATERIAL_IMAGE_TYPES, MATERIAL_PDF_TYPE].join(',')
+const MATERIALS_MODAL_VISIBLE_WIDTH = 168
+const MATERIALS_MODAL_VISIBLE_HEIGHT = 96
+const STYLE_EXAMPLE_PAGE_SIZE = 5
+const MAX_ENABLED_STYLE_EXAMPLES = 5
+const CLASSROOM_CONTENT_MODES = [
+  { value: 'qa', label: '问答模式' },
+  { value: 'free', label: '自由模式' },
+]
+const QA_FIELDS = [
+  {
+    key: 'lesson',
+    formField: 'lesson_summary',
+    title: '1. 本节课主要学了什么？',
+    example: '例如：学习了一元一次方程的去括号、移项和合并同类项，重点练了应用题列方程。',
+  },
+  {
+    key: 'performance',
+    formField: 'performance_summary',
+    title: '2. 学生课堂表现和掌握情况如何？',
+    example: '例如：听课比较专注，基础计算掌握较好，但应用题读题和等量关系寻找还需要提醒。',
+  },
+  {
+    key: 'advice',
+    formField: 'advice_summary',
+    title: '3. 课后建议重点是什么？',
+    example: '例如：建议课后把今天错的应用题重新整理一遍，先标出关键词，再写等量关系。',
+  },
+  {
+    key: 'homework',
+    formField: 'homework_plan',
+    title: '4. 作业安排是什么？',
+    example: '例如：完成讲义第 3 页 1-6 题，错题整理到错题本，下节课检查。',
+  },
+]
 
 const authForm = reactive({ email: '', password: '', confirmPassword: '', code: '' })
 const oneStudentForm = reactive({ name: '', grade: '', subject: '', note: '' })
@@ -80,7 +128,6 @@ const aiSettingsForm = reactive({
   model: 'deepseek-chat',
   api_key: '',
   clear_api_key: false,
-  feedback_format_mode: 'structured',
 })
 const visionSettingsForm = reactive({
   provider: 'doubao_v',
@@ -89,7 +136,11 @@ const visionSettingsForm = reactive({
   api_key: '',
   clear_api_key: false,
 })
-const styleExampleForm = reactive({ title: '', content: '' })
+const styleExampleForm = reactive({ title: '', content: '', enabled: true })
+const inlineStyleExampleForm = reactive({ title: '', content: '', enabled: true })
+const qaAnswers = reactive(defaultQaAnswers())
+const materialsModalFrame = reactive({ left: 160, top: 80, width: 760, height: 680 })
+const materialsModalDrag = reactive({ active: false, startX: 0, startY: 0, startLeft: 0, startTop: 0, startWidth: 0, startHeight: 0, mode: '' })
 const settingsPanels = reactive({
   feedback_ai: true,
   vision_ai: false,
@@ -202,6 +253,30 @@ const currentView = computed(() => {
 const filteredStudentFeedbacks = computed(() =>
   feedbacks.value.filter((feedback) => isDateInRange(feedback.lesson_time, studentHistoryFilter.start_date, studentHistoryFilter.end_date))
 )
+const enabledStyleExamples = computed(() => styleExamples.value.filter((example) => example.enabled))
+const enabledStyleExampleCount = computed(() => enabledStyleExamples.value.length)
+const styleGenerationStatus = computed(() =>
+  enabledStyleExampleCount.value
+    ? `已启用 ${enabledStyleExampleCount.value} / ${MAX_ENABLED_STYLE_EXAMPLES} 条样例，将按个人风格生成`
+    : '暂无启用样例，将按标准结构生成'
+)
+const styleExampleTotalPages = computed(() => totalPages(styleExamples.value.length))
+const feedbackStyleExampleTotalPages = computed(() => totalPages(styleExamples.value.length))
+const paginatedStyleExamples = computed(() => pageItems(styleExamples.value, styleExamplePage.value))
+const paginatedFeedbackStyleExamples = computed(() => pageItems(styleExamples.value, feedbackStyleExamplePage.value))
+const materialStatus = computed(() => {
+  if (materialsConverting.value) return '正在转换 PDF 页面...'
+  if (materialsAnalyzing.value) return '正在识别课堂资料...'
+  if (materialAnalysis.value) return `已识别 ${materialImages.value.length} 个资料页面，可填入课堂学习内容`
+  if (materialImages.value.length) return `已选择 ${materialImages.value.length} / ${MAX_MATERIAL_IMAGES} 个资料页面，支持图片和 PDF`
+  return '可上传图片或 PDF，Word 请先导出为 PDF 后上传'
+})
+const materialsModalStyle = computed(() => ({
+  left: `${materialsModalFrame.left}px`,
+  top: `${materialsModalFrame.top}px`,
+  width: `${materialsModalFrame.width}px`,
+  height: `${materialsModalFrame.height}px`,
+}))
 
 function newFeedback() {
   return {
@@ -213,7 +288,15 @@ function newFeedback() {
     homework_plan: '',
     ai_draft: '',
     final_feedback: '',
-    format_mode: 'structured',
+  }
+}
+
+function defaultQaAnswers() {
+  return {
+    lesson: '',
+    performance: '',
+    advice: '',
+    homework: '',
   }
 }
 
@@ -238,14 +321,33 @@ function defaultFeedbackSearchRange() {
   }
 }
 
+function totalPages(total) {
+  return Math.max(1, Math.ceil(total / STYLE_EXAMPLE_PAGE_SIZE))
+}
+
+function pageItems(items, page) {
+  const start = (page - 1) * STYLE_EXAMPLE_PAGE_SIZE
+  return items.slice(start, start + STYLE_EXAMPLE_PAGE_SIZE)
+}
+
+function clampStyleExamplePages() {
+  styleExamplePage.value = Math.min(styleExamplePage.value, styleExampleTotalPages.value)
+  feedbackStyleExamplePage.value = Math.min(feedbackStyleExamplePage.value, feedbackStyleExampleTotalPages.value)
+}
+
+function setStyleExamplePage(page, target = 'settings') {
+  const total = target === 'feedback' ? feedbackStyleExampleTotalPages.value : styleExampleTotalPages.value
+  const next = Math.min(Math.max(1, page), total)
+  if (target === 'feedback') {
+    feedbackStyleExamplePage.value = next
+  } else {
+    styleExamplePage.value = next
+  }
+}
+
 function defaultFeedbackPanels() {
   return {
-    lesson: true,
-    materials: true,
-    performance: true,
-    advice: true,
-    homework: true,
-    guide: true,
+    content: true,
     draft: true,
     final: true,
   }
@@ -357,6 +459,11 @@ function titleForGenerate(title, lessonTime) {
   return date ? `${base}（${date}）` : base
 }
 
+function defaultStyleExampleTitle() {
+  const title = titleForGenerate(feedbackForm.lesson_title, feedbackForm.lesson_time)
+  return title || '一对一课后反馈样例'
+}
+
 function lessonDateValue(lessonTime) {
   const raw = String(lessonTime || '').replace(' ', 'T')
   return raw.slice(0, 10)
@@ -423,12 +530,13 @@ function assignFeedback(target, source) {
   target.homework_plan = source.homework_plan || ''
   target.ai_draft = source.ai_draft || ''
   target.final_feedback = source.final_feedback || ''
-  target.format_mode = source.format_mode || aiSettings.value?.feedback_format_mode || 'structured'
 }
 
 function resetFeedbackForm() {
   assignFeedback(feedbackForm, newFeedback())
-  guideItems.value = []
+  Object.assign(qaAnswers, defaultQaAnswers())
+  classroomContentMode.value = 'qa'
+  feedbackEmphasis.value = ''
   clearMaterialImages()
   feedbackDraftStatus.value = ''
 }
@@ -444,6 +552,10 @@ function hasFeedbackDraft(form) {
   )
 }
 
+function hasQaAnswers() {
+  return QA_FIELDS.some((field) => qaAnswers[field.key]?.trim())
+}
+
 function currentFeedbackDraftKey() {
   if (!teacher.value?.id || !currentStudent.value?.id) return ''
   return `one_feedback_draft:${teacher.value.id}:${currentStudent.value.id}`
@@ -452,8 +564,9 @@ function currentFeedbackDraftKey() {
 function feedbackDraftHasContent(draft) {
   return Boolean(
     hasFeedbackDraft(draft?.feedback || {}) ||
-      (draft?.guide_items || []).some((item) => item.answer?.trim()) ||
-      draft?.material_analysis
+      draft?.material_analysis ||
+      Object.values(draft?.qa_answers || {}).some((value) => String(value || '').trim()) ||
+      draft?.emphasis_summary?.trim()
   )
 }
 
@@ -477,8 +590,10 @@ function saveFeedbackDraft() {
   if (!key || !showCreateModal.value) return
   const draft = {
     feedback: { ...feedbackForm },
-    guide_items: guideItems.value.map((item) => ({ ...item })),
     feedback_panels: { ...feedbackPanels },
+    content_mode: classroomContentMode.value,
+    qa_answers: { ...qaAnswers },
+    emphasis_summary: feedbackEmphasis.value,
     material_analysis: materialAnalysis.value,
     updated_at: new Date().toISOString(),
   }
@@ -494,8 +609,10 @@ function saveFeedbackDraft() {
 function applyFeedbackDraft(draft) {
   if (!draft?.feedback) return
   assignFeedback(feedbackForm, draft.feedback)
-  guideItems.value = Array.isArray(draft.guide_items) ? draft.guide_items.map((item) => ({ ...item })) : []
   Object.assign(feedbackPanels, defaultFeedbackPanels(), draft.feedback_panels || {})
+  Object.assign(qaAnswers, defaultQaAnswers(), draft.qa_answers || {})
+  classroomContentMode.value = draft.content_mode === 'free' ? 'free' : 'qa'
+  feedbackEmphasis.value = draft.emphasis_summary || ''
   clearMaterialImages()
   materialAnalysis.value = draft.material_analysis || null
   feedbackDraftStatus.value = '已恢复草稿'
@@ -623,7 +740,6 @@ function assignAISettings(settings) {
   aiSettingsForm.model = settings?.model || AI_PRESETS.deepseek.model
   aiSettingsForm.api_key = ''
   aiSettingsForm.clear_api_key = false
-  aiSettingsForm.feedback_format_mode = settings?.feedback_format_mode || 'structured'
 }
 
 function assignVisionSettings(settings) {
@@ -648,6 +764,7 @@ async function loadVisionSettings() {
 async function loadStyleExamples() {
   const data = await request('/settings/style-examples')
   styleExamples.value = data.examples
+  clampStyleExamplePages()
 }
 
 async function saveAISettings() {
@@ -657,7 +774,13 @@ async function saveAISettings() {
   try {
     const data = await request('/settings/ai', {
       method: 'PUT',
-      body: JSON.stringify(aiSettingsForm),
+      body: JSON.stringify({
+        provider: aiSettingsForm.provider,
+        base_url: aiSettingsForm.base_url,
+        model: aiSettingsForm.model,
+        api_key: aiSettingsForm.api_key,
+        clear_api_key: aiSettingsForm.clear_api_key,
+      }),
     })
     assignAISettings(data.settings)
     showMessage('AI 设置已保存')
@@ -744,17 +867,25 @@ async function clearVisionKey() {
   await saveVisionSettings()
 }
 
-async function saveStyleExample() {
-  if (!styleExampleForm.content.trim()) return showMessage('请粘贴一段反馈样例')
+async function createStyleExampleFromForm(form, successMessage = '风格样例已保存') {
+  if (!form.content.trim()) return showMessage('请粘贴一段反馈样例')
+  if (form.enabled && enabledStyleExampleCount.value >= MAX_ENABLED_STYLE_EXAMPLES) {
+    return showMessage('最多启用 5 条风格样例参与生成，请先停用一条样例')
+  }
+  const title = form.title.trim() || (form === inlineStyleExampleForm ? defaultStyleExampleTitle() : '')
   loading.value = true
   try {
     await request('/settings/style-examples', {
       method: 'POST',
-      body: JSON.stringify(styleExampleForm),
+      body: JSON.stringify({
+        title,
+        content: form.content,
+        enabled: form.enabled,
+      }),
     })
-    Object.assign(styleExampleForm, { title: '', content: '' })
+    Object.assign(form, { title: '', content: '', enabled: true })
     await loadStyleExamples()
-    showMessage('风格样例已保存')
+    showMessage(successMessage)
   } catch (error) {
     showMessage(error.message)
   } finally {
@@ -762,7 +893,18 @@ async function saveStyleExample() {
   }
 }
 
+async function saveStyleExample() {
+  await createStyleExampleFromForm(styleExampleForm)
+}
+
+async function saveInlineStyleExample() {
+  await createStyleExampleFromForm(inlineStyleExampleForm, '风格样例已添加，可继续填写反馈')
+}
+
 async function toggleStyleExample(example) {
+  if (!example.enabled && enabledStyleExampleCount.value >= MAX_ENABLED_STYLE_EXAMPLES) {
+    return showMessage('最多启用 5 条风格样例参与生成，请先停用一条样例')
+  }
   loading.value = true
   try {
     await request(`/settings/style-examples/${example.id}`, {
@@ -890,13 +1032,17 @@ async function deleteOneStudent() {
   }
 }
 
-function openCreateFeedback() {
+async function openCreateFeedback() {
   resetFeedbackForm()
   resetFeedbackPanels()
   const subject = currentStudent.value?.subject || '课程'
   const displayName = studentDisplayName(currentStudent.value?.name || '学生')
   feedbackForm.lesson_title = `${displayName}第${feedbacks.value.length + 1}次${subject}课`
-  feedbackForm.format_mode = aiSettings.value?.feedback_format_mode || 'structured'
+  try {
+    await loadStyleExamples()
+  } catch (error) {
+    showMessage(error.message)
+  }
   const draft = readFeedbackDraft()
   if (feedbackDraftHasContent(draft) && window.confirm('检测到这名学生有未保存草稿，是否恢复？')) {
     applyFeedbackDraft(draft)
@@ -907,8 +1053,33 @@ function openCreateFeedback() {
   resizeAllTextareas()
 }
 
+async function openFeedbackStyleModal() {
+  showFeedbackStyleModal.value = true
+  try {
+    await loadStyleExamples()
+    await resizeAllTextareas()
+  } catch (error) {
+    showMessage(error.message)
+  }
+}
+
+function closeFeedbackStyleModal() {
+  showFeedbackStyleModal.value = false
+}
+
+async function openMaterialsModal() {
+  showMaterialsModal.value = true
+  await resizeAllTextareas()
+}
+
+function closeMaterialsModal() {
+  showMaterialsModal.value = false
+}
+
 function closeCreateFeedback() {
-  if (hasFeedbackDraft(feedbackForm) && !window.confirm('这条反馈还没有保存，确定关闭吗？')) return
+  if ((hasFeedbackDraft(feedbackForm) || hasQaAnswers() || feedbackEmphasis.value.trim()) && !window.confirm('这条反馈还没有保存，确定关闭吗？')) return
+  showFeedbackStyleModal.value = false
+  showMaterialsModal.value = false
   showCreateModal.value = false
   resetFeedbackForm()
 }
@@ -924,38 +1095,54 @@ function closeMonthlyModal() {
   resetMonthlyForm()
 }
 
-function parseGuideQuestions(text) {
-  return String(text || '')
-    .split(/\r?\n/)
-    .map((line) => line.replace(/^\s*[-*]?\s*\d*[.、)]?\s*/, '').trim())
-    .filter(Boolean)
-    .map((question) => ({ question, answer: '' }))
+function setClassroomContentMode(mode) {
+  classroomContentMode.value = mode
+  openFeedbackPanel('content')
+  resizeAllTextareas()
+  saveFeedbackDraft()
 }
 
-async function createGuideQuestions() {
-  loading.value = true
-  try {
-    const data = await request(`/students/${currentStudent.value.id}/feedbacks/guide`, {
-      method: 'POST',
-      body: JSON.stringify({
-        lesson_time: feedbackForm.lesson_time,
-        lesson_title: titleForGenerate(feedbackForm.lesson_title, feedbackForm.lesson_time),
-        lesson_summary: feedbackForm.lesson_summary,
-        performance_summary: feedbackForm.performance_summary,
-        advice_summary: feedbackForm.advice_summary,
-        homework_plan: feedbackForm.homework_plan,
-      }),
-    })
-    guideItems.value = parseGuideQuestions(data.questions)
-    openFeedbackPanel('guide')
-    await resizeAllTextareas()
-    saveFeedbackDraft()
-    showMessage('已帮你梳理可补充的问题')
-  } catch (error) {
-    showMessage(error.message)
-  } finally {
-    loading.value = false
-  }
+function normalizeQaAnswer(text) {
+  return String(text || '')
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*[-*•]?\s*\d*[.、)]?\s*/, '').trim())
+    .filter(Boolean)
+}
+
+function qaAnswerToBullets(text) {
+  const lines = normalizeQaAnswer(text)
+  return lines.map((line) => `- ${line}`).join('\n')
+}
+
+function appendMergedText(field, text) {
+  const value = String(text || '').trim()
+  if (!value) return
+  const current = String(feedbackForm[field] || '').trim()
+  if (current.includes(value)) return
+  feedbackForm[field] = [current, value].filter(Boolean).join('\n')
+}
+
+function qaFieldValue(field) {
+  return qaAnswerToBullets(qaAnswers[field.key]) || feedbackForm[field.formField]
+}
+
+function qaInputForGenerate() {
+  return QA_FIELDS.reduce((payload, field) => {
+    payload[field.formField] = qaFieldValue(field)
+    return payload
+  }, {})
+}
+
+function convertQaToFree() {
+  if (!hasQaAnswers()) return showMessage('请先填写问答内容')
+  QA_FIELDS.forEach((field) => {
+    appendMergedText(field.formField, qaAnswerToBullets(qaAnswers[field.key]))
+  })
+  classroomContentMode.value = 'free'
+  openFeedbackPanel('content')
+  resizeAllTextareas()
+  saveFeedbackDraft()
+  showMessage('已整理到自由模式，可继续修改完善')
 }
 
 function appendText(field, text) {
@@ -988,38 +1175,119 @@ function clearMaterialImages() {
   clearMaterialInput()
 }
 
-function handleMaterialFiles(event) {
+function isPdfFile(file) {
+  return file.type === MATERIAL_PDF_TYPE || file.name.toLowerCase().endsWith('.pdf')
+}
+
+function isWordFile(file) {
+  const name = file.name.toLowerCase()
+  return (
+    name.endsWith('.doc') ||
+    name.endsWith('.docx') ||
+    file.type === 'application/msword' ||
+    file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  )
+}
+
+function materialPageItem(file, source = '图片') {
+  return {
+    id: `${Date.now()}-${file.name}-${Math.random()}`,
+    file,
+    preview_url: URL.createObjectURL(file),
+    source,
+  }
+}
+
+function canvasToBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob)
+      else reject(new Error('PDF 页面转换失败，请重试'))
+    }, 'image/png')
+  })
+}
+
+async function renderPdfPages(file, limit) {
+  if (file.size > MAX_MATERIAL_PDF_SIZE) {
+    showMessage(`${file.name} 超过 25MB，请压缩或拆分后上传`)
+    return []
+  }
+  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise
+  const pageCount = Math.min(pdf.numPages, limit)
+  const pages = []
+  const baseName = file.name.replace(/\.pdf$/i, '')
+
+  for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber)
+    const viewport = page.getViewport({ scale: 1 })
+    const scale = Math.min(2, Math.max(1.1, MAX_PDF_RENDER_WIDTH / viewport.width))
+    const scaledViewport = page.getViewport({ scale })
+    const canvas = document.createElement('canvas')
+    const context = canvas.getContext('2d')
+    canvas.width = Math.floor(scaledViewport.width)
+    canvas.height = Math.floor(scaledViewport.height)
+    await page.render({ canvasContext: context, viewport: scaledViewport }).promise
+    const blob = await canvasToBlob(canvas)
+    if (blob.size > MAX_MATERIAL_IMAGE_SIZE) {
+      showMessage(`${file.name} 第 ${pageNumber} 页转换后超过 8MB，已跳过`)
+      continue
+    }
+    const imageFile = new File([blob], `${baseName}-第${pageNumber}页.png`, { type: 'image/png' })
+    pages.push(materialPageItem(imageFile, `${file.name} 第 ${pageNumber} 页`))
+  }
+
+  if (pdf.numPages > limit) showMessage(`${file.name} 页数较多，已保留前 ${limit} 页`)
+  return pages
+}
+
+async function handleMaterialFiles(event) {
   const files = Array.from(event.target.files || [])
   if (!files.length) return
-  const availableSlots = MAX_MATERIAL_IMAGES - materialImages.value.length
-  if (availableSlots <= 0) {
-    showMessage(`一次最多上传 ${MAX_MATERIAL_IMAGES} 张课堂资料图片`)
+  if (materialImages.value.length >= MAX_MATERIAL_IMAGES) {
+    showMessage(`一次最多上传 ${MAX_MATERIAL_IMAGES} 个课堂资料页面`)
     clearMaterialInput()
     return
   }
 
   const accepted = []
-  for (const file of files.slice(0, availableSlots)) {
-    if (!MATERIAL_IMAGE_TYPES.includes(file.type)) {
-      showMessage('只支持 JPG、PNG、WEBP 图片')
-      continue
+  materialsConverting.value = true
+  try {
+    for (const file of files) {
+      const availableSlots = MAX_MATERIAL_IMAGES - materialImages.value.length - accepted.length
+      if (availableSlots <= 0) {
+        showMessage(`已保留前 ${MAX_MATERIAL_IMAGES} 个资料页面`)
+        break
+      }
+      if (isWordFile(file)) {
+        showMessage(`${file.name} 暂不支持直接上传，请先导出为 PDF 后上传`)
+        continue
+      }
+      if (isPdfFile(file)) {
+        accepted.push(...(await renderPdfPages(file, availableSlots)))
+        continue
+      }
+      if (!MATERIAL_IMAGE_TYPES.includes(file.type)) {
+        showMessage('只支持 JPG、PNG、WEBP 图片和 PDF 文件')
+        continue
+      }
+      if (file.size > MAX_MATERIAL_IMAGE_SIZE) {
+        showMessage(`${file.name} 超过 8MB，请压缩后再上传`)
+        continue
+      }
+      accepted.push(materialPageItem(file))
     }
-    if (file.size > MAX_MATERIAL_IMAGE_SIZE) {
-      showMessage(`${file.name} 超过 8MB，请压缩后再上传`)
-      continue
-    }
-    accepted.push({
-      id: `${Date.now()}-${file.name}-${Math.random()}`,
-      file,
-      preview_url: URL.createObjectURL(file),
-    })
+  } catch (error) {
+    showMessage(error.message)
+  } finally {
+    materialsConverting.value = false
+    clearMaterialInput()
   }
-  if (files.length > availableSlots) showMessage(`已保留前 ${availableSlots} 张，一次最多上传 ${MAX_MATERIAL_IMAGES} 张`)
+
   if (accepted.length) {
     materialImages.value = [...materialImages.value, ...accepted]
     materialAnalysis.value = null
+    saveFeedbackDraft()
   }
-  clearMaterialInput()
 }
 
 function fileToBase64(file) {
@@ -1034,8 +1302,50 @@ function fileToBase64(file) {
   })
 }
 
+function clampMaterialsModalFrame() {
+  const minLeft = Math.min(8, MATERIALS_MODAL_VISIBLE_WIDTH - materialsModalFrame.width)
+  const maxLeft = Math.max(8, window.innerWidth - MATERIALS_MODAL_VISIBLE_WIDTH)
+  const minTop = Math.min(8, MATERIALS_MODAL_VISIBLE_HEIGHT - materialsModalFrame.height)
+  const maxTop = Math.max(8, window.innerHeight - MATERIALS_MODAL_VISIBLE_HEIGHT)
+  materialsModalFrame.left = Math.min(Math.max(minLeft, materialsModalFrame.left), maxLeft)
+  materialsModalFrame.top = Math.min(Math.max(minTop, materialsModalFrame.top), maxTop)
+}
+
+function startMaterialsModalMove(event, mode) {
+  if (event.button !== undefined && event.button !== 0) return
+  materialsModalDrag.active = true
+  materialsModalDrag.mode = mode
+  materialsModalDrag.startX = event.clientX
+  materialsModalDrag.startY = event.clientY
+  materialsModalDrag.startLeft = materialsModalFrame.left
+  materialsModalDrag.startTop = materialsModalFrame.top
+  materialsModalDrag.startWidth = materialsModalFrame.width
+  materialsModalDrag.startHeight = materialsModalFrame.height
+  window.addEventListener('pointermove', moveMaterialsModal)
+  window.addEventListener('pointerup', stopMaterialsModalMove, { once: true })
+}
+
+function moveMaterialsModal(event) {
+  if (!materialsModalDrag.active) return
+  const deltaX = event.clientX - materialsModalDrag.startX
+  const deltaY = event.clientY - materialsModalDrag.startY
+  if (materialsModalDrag.mode === 'move') {
+    materialsModalFrame.left = materialsModalDrag.startLeft + deltaX
+    materialsModalFrame.top = materialsModalDrag.startTop + deltaY
+  } else {
+    materialsModalFrame.width = Math.min(window.innerWidth - 16, Math.max(520, materialsModalDrag.startWidth + deltaX))
+    materialsModalFrame.height = Math.min(window.innerHeight - 16, Math.max(430, materialsModalDrag.startHeight + deltaY))
+  }
+  clampMaterialsModalFrame()
+}
+
+function stopMaterialsModalMove() {
+  materialsModalDrag.active = false
+  window.removeEventListener('pointermove', moveMaterialsModal)
+}
+
 async function analyzeMaterialImages() {
-  if (!materialImages.value.length) return showMessage('请先选择课堂资料图片')
+  if (!materialImages.value.length) return showMessage('请先选择课堂资料')
   materialsAnalyzing.value = true
   try {
     const images = await Promise.all(
@@ -1053,7 +1363,6 @@ async function analyzeMaterialImages() {
         images,
       }),
     })
-    openFeedbackPanel('materials')
     saveFeedbackDraft()
     showMessage('课堂资料已识别完成')
   } catch (error) {
@@ -1067,43 +1376,42 @@ function applyMaterialAnalysis() {
   const suggestion = materialAnalysis.value?.lesson_summary_suggestion || ''
   if (!suggestion.trim()) return showMessage('暂无可填入的课堂学习内容')
   appendText('lesson_summary', suggestion)
-  openFeedbackPanel('lesson')
+  if (classroomContentMode.value === 'qa') {
+    qaAnswers.lesson = [qaAnswers.lesson, suggestion.trim()].filter(Boolean).join('\n')
+  }
+  openFeedbackPanel('content')
   resizeAllTextareas()
   saveFeedbackDraft()
   showMessage('已填入课堂学习内容，可继续修改')
 }
 
-function mergeGuideAnswers() {
-  const answered = guideItems.value.filter((item) => item.answer.trim())
-  if (!answered.length) return showMessage('先回答一两个问题再合并')
-  answered.forEach((item) => {
-    const line = `${item.question}：${item.answer}`
-    if (item.question.includes('作业')) appendText('homework_plan', item.answer)
-    else if (/(建议|方案|帮助|复习|巩固)/.test(item.question)) appendText('advice_summary', line)
-    else if (/(表现|状态|掌握|问题|薄弱|关注)/.test(item.question)) appendText('performance_summary', line)
-    else appendText('lesson_summary', line)
-  })
-  guideItems.value = []
-  resizeAllTextareas()
-  saveFeedbackDraft()
-  showMessage('补充要点已合并到表单')
-}
-
 async function generateDraft() {
   if (!feedbackForm.lesson_title.trim()) return showMessage('请填写反馈标题')
-  if (!feedbackForm.lesson_summary.trim()) return showMessage('请填写课程内容简述')
+  const contentPayload = classroomContentMode.value === 'qa' ? qaInputForGenerate() : {
+    lesson_summary: feedbackForm.lesson_summary,
+    performance_summary: feedbackForm.performance_summary,
+    advice_summary: feedbackForm.advice_summary,
+    homework_plan: feedbackForm.homework_plan,
+  }
+  if (classroomContentMode.value === 'qa') {
+    const missingQuestion = QA_FIELDS.find((field) => !qaAnswers[field.key]?.trim())
+    if (missingQuestion) return showMessage(`请先填写：${missingQuestion.title}`)
+  }
+  if (!contentPayload.lesson_summary.trim()) return showMessage('请填写课堂学习内容')
+  if (classroomContentMode.value === 'qa') {
+    QA_FIELDS.forEach((field) => {
+      feedbackForm[field.formField] = contentPayload[field.formField]
+    })
+  }
   loading.value = true
   try {
     const data = await request(`/students/${currentStudent.value.id}/feedbacks/generate`, {
       method: 'POST',
       body: JSON.stringify({
-        format_mode: feedbackForm.format_mode,
         lesson_time: feedbackForm.lesson_time,
         lesson_title: titleForGenerate(feedbackForm.lesson_title, feedbackForm.lesson_time),
-        lesson_summary: feedbackForm.lesson_summary,
-        performance_summary: feedbackForm.performance_summary,
-        advice_summary: feedbackForm.advice_summary,
-        homework_plan: feedbackForm.homework_plan,
+        ...contentPayload,
+        emphasis_summary: feedbackEmphasis.value,
       }),
     })
     feedbackForm.ai_draft = data.draft
@@ -1123,6 +1431,12 @@ async function generateDraft() {
 
 async function saveFeedback() {
   if (!feedbackForm.final_feedback.trim()) return showMessage('请先生成或填写反馈内容')
+  if (classroomContentMode.value === 'qa' && hasQaAnswers()) {
+    const contentPayload = qaInputForGenerate()
+    QA_FIELDS.forEach((field) => {
+      feedbackForm[field.formField] = contentPayload[field.formField]
+    })
+  }
   loading.value = true
   try {
     feedbackForm.lesson_title = titleForGenerate(feedbackForm.lesson_title, feedbackForm.lesson_time)
@@ -1245,6 +1559,7 @@ async function deleteFeedback() {
 
 async function addCurrentFeedbackAsStyleExample() {
   if (!detailFeedback.value) return
+  const defaultTitle = detailFeedback.value.lesson_title || `${currentStudent.value?.name || '学生'} ${detailFeedback.value.lesson_time}`
   loading.value = true
   try {
     await request('/settings/style-examples/from-feedback', {
@@ -1252,9 +1567,10 @@ async function addCurrentFeedbackAsStyleExample() {
       body: JSON.stringify({
         feedback_type: 'one_on_one',
         feedback_id: detailFeedback.value.id,
-        title: `${currentStudent.value?.name || '学生'} ${detailFeedback.value.lesson_time}`,
+        title: defaultTitle,
       }),
     })
+    await loadStyleExamples()
     showMessage('已设为个人风格样例')
   } catch (error) {
     showMessage(error.message)
@@ -1770,14 +2086,6 @@ onMounted(async () => {
                 <small>{{ aiSettings?.has_api_key ? '当前账号已有 API Key。填写新 Key 会覆盖旧 Key。' : '还没有保存 API Key，生成反馈前需要先配置。' }}</small>
               </label>
 
-              <label>默认反馈生成模式
-                <select v-model="aiSettingsForm.feedback_format_mode">
-                  <option value="structured">结构化反馈</option>
-                  <option value="free_style">自由风格</option>
-                </select>
-                <small>结构化适合统一四段格式；自由风格会更多参考你的个人样例排版和语气。</small>
-              </label>
-
               <div class="button-row danger-row">
                 <div class="button-row">
                   <button type="button" class="ghost-btn" :disabled="loading" @click="testAISettings">测试连接</button>
@@ -1851,20 +2159,26 @@ onMounted(async () => {
                 <small>可选配置，让生成出来的反馈更像你平时写给家长的表达。</small>
               </span>
               <span class="settings-header-side">
-                <span class="settings-pill" :class="{ ok: styleExamples.length }">{{ styleExamples.length ? `${styleExamples.length} 条样例` : '可选 · 暂无样例' }}</span>
+                <span class="settings-pill" :class="{ ok: enabledStyleExampleCount }">{{ styleExamples.length ? `${enabledStyleExampleCount} / ${MAX_ENABLED_STYLE_EXAMPLES} 启用 · ${styleExamples.length} 条` : '可选 · 暂无样例' }}</span>
                 <span class="settings-caret">{{ settingsPanels.style_examples ? '收起' : '展开' }}</span>
               </span>
             </button>
 
             <div v-show="settingsPanels.style_examples" class="settings-panel-body">
-              <p class="settings-hint">AI 只学习语气、结构和详略，不复用样例里的学生事实。保存过反馈后，也可以在反馈详情里一键设为样例。</p>
+              <p class="settings-hint">个人风格样例用于告诉 AI 你平时怎么写反馈。没有启用样例时，课后反馈会按标准四段结构输出；启用样例后，AI 会学习样例的语气、排版和详略，但不会复用样例里的学生事实。添加是保存样例，启用才会参与生成，最多启用 {{ MAX_ENABLED_STYLE_EXAMPLES }} 条。</p>
 
               <label>样例标题
-                <input v-model="styleExampleForm.title" placeholder="例如：温和细致版 / 简洁直接版" />
+                <input v-model="styleExampleForm.title" placeholder="例如：小明第3次数学课（5.12）" />
+                <small>建议用“学生 + 第几次 + 科目 + 日期”，方便以后在样例库里找到对应课程。标题仅用于管理，AI 主要学习下方反馈正文。</small>
               </label>
 
               <label>反馈样例
                 <textarea v-model="styleExampleForm.content" class="auto-textarea final-text" placeholder="粘贴一段你写过的完整反馈" @input="autoResize"></textarea>
+              </label>
+
+              <label class="check-row">
+                <input v-model="styleExampleForm.enabled" type="checkbox" />
+                <span>保存后立即启用，参与后续反馈生成</span>
               </label>
 
               <div class="button-row">
@@ -1872,7 +2186,7 @@ onMounted(async () => {
               </div>
 
               <div class="style-example-list">
-                <article v-for="example in styleExamples" :key="example.id" class="style-example-item">
+                <article v-for="example in paginatedStyleExamples" :key="example.id" class="style-example-item">
                   <div>
                     <strong>{{ example.title || '未命名样例' }}</strong>
                     <small>{{ example.enabled ? '生成时参考' : '已停用' }} · {{ shortText(example.content, 88) }}</small>
@@ -1883,6 +2197,11 @@ onMounted(async () => {
                   </div>
                 </article>
                 <p v-if="!styleExamples.length" class="settings-hint">还没有风格样例。</p>
+                <div v-if="styleExamples.length > STYLE_EXAMPLE_PAGE_SIZE" class="pagination-row">
+                  <button type="button" class="ghost-btn" :disabled="styleExamplePage <= 1" @click="setStyleExamplePage(styleExamplePage - 1)">上一页</button>
+                  <span>第 {{ styleExamplePage }} / {{ styleExampleTotalPages }} 页</span>
+                  <button type="button" class="ghost-btn" :disabled="styleExamplePage >= styleExampleTotalPages" @click="setStyleExamplePage(styleExamplePage + 1)">下一页</button>
+                </div>
               </div>
             </div>
           </form>
@@ -1911,7 +2230,7 @@ onMounted(async () => {
           </article>
           <article>
             <strong>3. 个人风格样例可稍后补充</strong>
-            <span>粘贴你写过的反馈样例后，AI 会更贴近你的表达习惯。</span>
+            <span>没有启用样例时按标准四段结构生成；启用样例后，AI 会更贴近你的表达习惯。</span>
           </article>
         </div>
         <div class="button-row danger-row">
@@ -1941,7 +2260,7 @@ onMounted(async () => {
           </article>
           <article>
             <strong>3. 可选配置个人风格样例</strong>
-            <span>样例越贴近你的日常表达，AI 写出来的反馈就越像你的口吻。</span>
+            <span>添加是保存样例，启用才会参与生成。没有启用样例时，反馈会按标准四段结构输出。</span>
           </article>
         </div>
         <div class="button-row danger-row">
@@ -1965,51 +2284,92 @@ onMounted(async () => {
         </div>
         <label>上课时间<input v-model="feedbackForm.lesson_time" type="datetime-local" /></label>
         <label>反馈标题<input v-model="feedbackForm.lesson_title" placeholder="例如：小明第3次数学课，生成时会自动补上（5.5）" /></label>
-        <label>生成模式
-          <select v-model="feedbackForm.format_mode">
-            <option value="structured">结构化反馈</option>
-            <option value="free_style">自由风格</option>
-          </select>
-          <small>{{ feedbackForm.format_mode === 'structured' ? '按四段结构输出，适合统一规范。' : '不强制四段标题，会更多参考你的个人风格样例。' }}</small>
-        </label>
-        <section class="feedback-panel" :class="{ collapsed: !feedbackPanels.lesson }">
-          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('lesson')"><strong>1. 课堂学习内容</strong><span>{{ feedbackPanels.lesson ? '收起' : '展开' }}</span></button>
-          <label v-show="feedbackPanels.lesson"><textarea v-model="feedbackForm.lesson_summary" class="auto-textarea" placeholder="写本节课学习的知识点、题型、方法，方便 AI 整理成复习清单" @input="autoResize"></textarea></label>
+        <section class="feedback-style-entry">
+          <div>
+            <strong>个人风格</strong>
+            <small>{{ styleGenerationStatus }}</small>
+          </div>
+          <button type="button" class="ghost-btn" :disabled="loading" @click="openFeedbackStyleModal">{{ styleExamples.length ? '管理个人风格' : '个人风格' }}</button>
         </section>
+        <section class="feedback-style-entry materials-entry">
+          <div>
+            <strong>课堂资料</strong>
+            <small>{{ materialStatus }}</small>
+          </div>
+          <button type="button" class="ghost-btn" :disabled="loading" @click="openMaterialsModal">导入课堂资料</button>
+        </section>
+        <section class="feedback-panel classroom-content-panel" :class="{ collapsed: !feedbackPanels.content }">
+          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('content')"><strong>课堂内容填写</strong><span>{{ feedbackPanels.content ? '收起' : '展开' }}</span></button>
+          <div v-show="feedbackPanels.content" class="feedback-panel-body">
+            <div class="mode-switch" role="tablist" aria-label="课堂内容填写模式">
+              <button v-for="mode in CLASSROOM_CONTENT_MODES" :key="mode.value" type="button" :class="{ active: classroomContentMode === mode.value }" @click="setClassroomContentMode(mode.value)">{{ mode.label }}</button>
+            </div>
 
-        <section class="feedback-panel materials-panel" :class="{ collapsed: !feedbackPanels.materials }">
-          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('materials')"><strong>导入课堂资料照片</strong><span>{{ feedbackPanels.materials ? '收起' : '展开' }}</span></button>
-          <div v-show="feedbackPanels.materials" class="feedback-panel-body">
-            <div class="materials-header">
-              <div>
-                <strong>课堂资料照片</strong>
-                <small>最多 {{ MAX_MATERIAL_IMAGES }} 张，支持 JPG、PNG、WEBP；适合试卷页、习题集、讲义、错题照片、课堂练习截图。尽量拍清题干、批改痕迹和页码。</small>
-              </div>
+            <div v-if="classroomContentMode === 'qa'" class="qa-mode-panel">
+              <label v-for="field in QA_FIELDS" :key="field.key" class="qa-question">
+                <span>{{ field.title }}</span>
+                <small>{{ field.example }}</small>
+                <textarea v-model="qaAnswers[field.key]" class="auto-textarea" placeholder="按课堂真实情况简单写几句即可" @input="autoResize"></textarea>
+              </label>
               <div class="button-row">
-                <label class="file-picker-btn">
-                  选择图片
-                  <input ref="materialInput" type="file" accept="image/jpeg,image/png,image/webp" multiple @change="handleMaterialFiles" />
-                </label>
-                <button type="button" class="ghost-btn" :disabled="!materialImages.length || materialsAnalyzing" @click="clearMaterialImages">清空</button>
+                <button type="button" class="ghost-btn" :disabled="loading" @click="convertQaToFree">转为自由编辑</button>
               </div>
             </div>
+
+            <div v-else class="free-mode-panel">
+              <label>1. 课堂学习内容<textarea v-model="feedbackForm.lesson_summary" class="auto-textarea" placeholder="写本节课学习的知识点、题型、方法，方便 AI 整理成复习清单" @input="autoResize"></textarea></label>
+              <label>2. 课堂表现与知识掌握情况<textarea v-model="feedbackForm.performance_summary" class="auto-textarea" placeholder="写学生状态、掌握得好的地方、需要关注的问题" @input="autoResize"></textarea></label>
+              <label>3. 课后建议<textarea v-model="feedbackForm.advice_summary" class="auto-textarea" placeholder="写你想给学生/家长的具体建议，AI 会润色成可执行方案" @input="autoResize"></textarea></label>
+              <label>4. 作业安排<textarea v-model="feedbackForm.homework_plan" class="auto-textarea" placeholder="严格填写本次需要布置给学生的作业，AI 只润色不新增" @input="autoResize"></textarea></label>
+              <label>重点强调<textarea v-model="feedbackEmphasis" class="auto-textarea" placeholder="可选。比如希望反馈更突出学习习惯、错题复盘、课堂进步或家长配合方式" @input="autoResize"></textarea></label>
+            </div>
+          </div>
+        </section>
+
+        <section class="feedback-panel" :class="{ collapsed: !feedbackPanels.draft }">
+          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('draft')"><strong>AI 初稿</strong><span>{{ feedbackPanels.draft ? '收起' : '展开' }}</span></button>
+          <label v-show="feedbackPanels.draft"><textarea v-model="feedbackForm.ai_draft" class="auto-textarea large-text" @input="autoResize"></textarea></label>
+        </section>
+
+        <section class="feedback-panel" :class="{ collapsed: !feedbackPanels.final }">
+          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('final')"><strong>最终反馈</strong><span>{{ feedbackPanels.final ? '收起' : '展开' }}</span></button>
+          <label v-show="feedbackPanels.final"><textarea v-model="feedbackForm.final_feedback" class="auto-textarea final-text" @input="autoResize"></textarea></label>
+        </section>
+
+        <div class="button-row feedback-action-row"><button type="button" class="ghost-btn" :disabled="loading" @click="generateDraft">生成 AI 初稿</button><button type="button" class="ghost-btn" :disabled="loading" @click="copyFeedbackText(feedbackForm.final_feedback)">复制最终反馈</button><button class="primary-btn" :disabled="loading">保存最终反馈</button></div>
+	      </form>
+
+      <div v-if="showMaterialsModal" class="nested-modal-mask transparent-mask">
+        <article class="paper-card modal-panel materials-floating-modal" :style="materialsModalStyle">
+          <div class="modal-title draggable-title" @pointerdown="startMaterialsModalMove($event, 'move')">
+            <div>
+              <h3>课堂资料</h3>
+              <small>{{ materialStatus }}</small>
+            </div>
+            <button type="button" class="icon-btn" @pointerdown.stop @click="closeMaterialsModal">×</button>
+          </div>
+
+          <div class="materials-header">
+            <div>
+              <strong>导入课堂资料</strong>
+              <small>最多 {{ MAX_MATERIAL_IMAGES }} 个资料页面，支持 JPG、PNG、WEBP 和 PDF。Word 请先导出为 PDF 后上传。</small>
+            </div>
+          </div>
+
+          <div class="materials-modal-body">
+            <p class="materials-guide">上传课堂照片、试卷截图或 PDF 后，可以识别图片里的知识点、题型和易错点，并把提炼结果填入“课堂学习内容”，辅助后续生成课后反馈。浮窗可以拖到网页边缘半隐藏，方便一边对照资料一边填写。</p>
 
             <div v-if="materialImages.length" class="material-preview-grid">
               <article v-for="(image, index) in materialImages" :key="image.id" class="material-preview-item">
                 <img :src="image.preview_url" alt="" />
                 <div>
                   <strong>{{ image.file.name }}</strong>
-                  <small>{{ formatFileSize(image.file.size) }}</small>
+                  <small>{{ image.source }} · {{ formatFileSize(image.file.size) }}</small>
                 </div>
-                <button type="button" class="icon-btn" :disabled="materialsAnalyzing" @click="removeMaterialImage(index)">×</button>
+                <button type="button" class="icon-btn" :disabled="materialsAnalyzing || materialsConverting" @click="removeMaterialImage(index)">×</button>
               </article>
             </div>
-
-            <div class="button-row">
-              <button type="button" class="ghost-btn" :disabled="!materialImages.length || materialsAnalyzing" @click="analyzeMaterialImages">
-                {{ materialsAnalyzing ? '正在识别课堂资料...' : '识别并提炼课堂内容' }}
-              </button>
-            </div>
+            <p v-else class="settings-hint">还没有课堂资料。可以上传课堂照片、试卷截图，或直接选择 PDF。</p>
 
             <section v-if="materialAnalysis" class="analysis-result-panel">
               <div class="analysis-result-header">
@@ -2033,49 +2393,83 @@ onMounted(async () => {
               </div>
             </section>
           </div>
-        </section>
 
-        <section class="feedback-panel" :class="{ collapsed: !feedbackPanels.performance }">
-          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('performance')"><strong>2. 课堂表现与知识掌握情况</strong><span>{{ feedbackPanels.performance ? '收起' : '展开' }}</span></button>
-          <label v-show="feedbackPanels.performance"><textarea v-model="feedbackForm.performance_summary" class="auto-textarea" placeholder="写学生状态、掌握得好的地方、需要关注的问题" @input="autoResize"></textarea></label>
-        </section>
-
-        <section class="feedback-panel" :class="{ collapsed: !feedbackPanels.advice }">
-          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('advice')"><strong>3. 课后建议</strong><span>{{ feedbackPanels.advice ? '收起' : '展开' }}</span></button>
-          <label v-show="feedbackPanels.advice"><textarea v-model="feedbackForm.advice_summary" class="auto-textarea" placeholder="写你想给学生/家长的具体建议，AI 会润色成可执行方案" @input="autoResize"></textarea></label>
-        </section>
-
-        <section class="feedback-panel" :class="{ collapsed: !feedbackPanels.homework }">
-          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('homework')"><strong>4. 作业安排</strong><span>{{ feedbackPanels.homework ? '收起' : '展开' }}</span></button>
-          <label v-show="feedbackPanels.homework"><textarea v-model="feedbackForm.homework_plan" class="auto-textarea" placeholder="严格填写本次需要布置给学生的作业，AI 只润色不新增" @input="autoResize"></textarea></label>
-        </section>
-
-        <section class="feedback-panel" :class="{ collapsed: !feedbackPanels.guide }">
-          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('guide')"><strong>我问你答</strong><span>{{ feedbackPanels.guide ? '收起' : '展开' }}</span></button>
-          <div v-show="feedbackPanels.guide" class="feedback-panel-body">
-            <p class="guide-hint">“我问你答”适合没思路时使用。你可以先写几个关键词，也可以先空着，AI 会像助教一样提问；你回答后再把素材填入上方输入框。</p>
-            <div class="button-row"><button type="button" class="ghost-btn" :disabled="loading" @click="createGuideQuestions">生成补充问题</button></div>
-            <section v-if="guideItems.length" class="guide-panel">
-              <div class="guide-header"><strong>回答这些问题，补全反馈素材</strong><button type="button" class="ghost-btn" @click="mergeGuideAnswers">把回答填入上方</button></div>
-              <label v-for="item in guideItems" :key="item.question">{{ item.question }}
-                <textarea v-model="item.answer" class="auto-textarea" @input="autoResize"></textarea>
-              </label>
-            </section>
+          <div class="button-row materials-action-row">
+            <label class="file-picker-btn">
+              选择图片/PDF
+              <input ref="materialInput" type="file" :accept="MATERIAL_ACCEPT_TYPES" multiple @change="handleMaterialFiles" />
+            </label>
+            <button type="button" class="ghost-btn" :disabled="!materialImages.length || materialsAnalyzing || materialsConverting" @click="clearMaterialImages">清空</button>
+            <button type="button" class="ghost-btn" :disabled="!materialImages.length || materialsAnalyzing || materialsConverting" @click="analyzeMaterialImages">
+              {{ materialsConverting ? '正在转换 PDF...' : materialsAnalyzing ? '正在识别课堂资料...' : '识别并提炼课堂内容' }}
+            </button>
           </div>
-        </section>
 
-        <section class="feedback-panel" :class="{ collapsed: !feedbackPanels.draft }">
-          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('draft')"><strong>AI 初稿</strong><span>{{ feedbackPanels.draft ? '收起' : '展开' }}</span></button>
-          <label v-show="feedbackPanels.draft"><textarea v-model="feedbackForm.ai_draft" class="auto-textarea large-text" @input="autoResize"></textarea></label>
-        </section>
+          <button class="resize-handle" type="button" aria-label="调整课堂资料浮窗大小" @pointerdown="startMaterialsModalMove($event, 'resize')"></button>
+        </article>
+      </div>
 
-        <section class="feedback-panel" :class="{ collapsed: !feedbackPanels.final }">
-          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('final')"><strong>最终反馈</strong><span>{{ feedbackPanels.final ? '收起' : '展开' }}</span></button>
-          <label v-show="feedbackPanels.final"><textarea v-model="feedbackForm.final_feedback" class="auto-textarea final-text" @input="autoResize"></textarea></label>
-        </section>
+      <div v-if="showFeedbackStyleModal" class="nested-modal-mask">
+        <article class="paper-card modal-panel feedback-style-modal">
+          <div class="modal-title">
+            <div>
+              <h3>个人风格</h3>
+              <small>{{ styleGenerationStatus }}</small>
+            </div>
+            <button type="button" class="icon-btn" @click="closeFeedbackStyleModal">×</button>
+          </div>
 
-        <div class="button-row feedback-action-row"><button type="button" class="ghost-btn" :disabled="loading" @click="createGuideQuestions">我问你答</button><button type="button" class="ghost-btn" :disabled="loading" @click="generateDraft">生成 AI 初稿</button><button type="button" class="ghost-btn" :disabled="loading" @click="copyFeedbackText(feedbackForm.final_feedback)">复制最终反馈</button><button class="primary-btn" :disabled="loading">保存最终反馈</button></div>
-      </form>
+          <p class="guide-hint">未启用样例时，AI 会按标准四段结构输出：课堂学习内容、课堂表现与知识掌握情况、课后建议、作业安排。启用样例后，AI 会学习你的语气、排版、段落详略和表达习惯，但不会复用样例里的学生事实。</p>
+
+          <div class="style-status-row">
+            <strong>{{ styleGenerationStatus }}</strong>
+            <small>样例库可保存多条，最多启用 {{ MAX_ENABLED_STYLE_EXAMPLES }} 条参与生成。</small>
+          </div>
+
+          <section class="inline-style-form">
+            <strong>快捷添加样例</strong>
+            <label>样例标题
+              <input v-model="inlineStyleExampleForm.title" :placeholder="`例如：${defaultStyleExampleTitle()}`" />
+              <small>建议用“学生 + 第几次 + 科目 + 日期”。留空时会用当前反馈标题，标题仅用于管理样例。</small>
+            </label>
+            <label>反馈样例
+              <textarea v-model="inlineStyleExampleForm.content" class="auto-textarea large-text" placeholder="粘贴一段你写过的完整反馈" @input="autoResize"></textarea>
+            </label>
+            <label class="check-row">
+              <input v-model="inlineStyleExampleForm.enabled" type="checkbox" />
+              <span>添加后立即启用，参与本次生成</span>
+            </label>
+            <div class="button-row">
+              <button type="button" class="primary-btn" :disabled="loading" @click="saveInlineStyleExample">添加风格样例</button>
+            </div>
+          </section>
+
+          <section class="style-library-panel">
+            <div class="style-library-header">
+              <strong>样例库</strong>
+              <small>{{ styleExamples.length ? `${styleExamples.length} 条样例` : '暂无样例' }}</small>
+            </div>
+            <div class="style-example-list">
+              <article v-for="example in paginatedFeedbackStyleExamples" :key="example.id" class="style-example-item">
+                <div>
+                  <strong>{{ example.title || '未命名样例' }}</strong>
+                  <small>{{ example.enabled ? '生成时参考' : '已停用' }} · {{ shortText(example.content, 88) }}</small>
+                </div>
+                <div class="button-row">
+                  <button type="button" class="ghost-btn" :disabled="loading" @click="toggleStyleExample(example)">{{ example.enabled ? '停用' : '启用' }}</button>
+                  <button type="button" class="danger-btn" :disabled="loading" @click="deleteStyleExample(example)">删除</button>
+                </div>
+              </article>
+              <p v-if="!styleExamples.length" class="settings-hint">还没有风格样例，可以先在上方粘贴一段自己的反馈。</p>
+              <div v-if="styleExamples.length > STYLE_EXAMPLE_PAGE_SIZE" class="pagination-row">
+                <button type="button" class="ghost-btn" :disabled="feedbackStyleExamplePage <= 1" @click="setStyleExamplePage(feedbackStyleExamplePage - 1, 'feedback')">上一页</button>
+                <span>第 {{ feedbackStyleExamplePage }} / {{ feedbackStyleExampleTotalPages }} 页</span>
+                <button type="button" class="ghost-btn" :disabled="feedbackStyleExamplePage >= feedbackStyleExampleTotalPages" @click="setStyleExamplePage(feedbackStyleExamplePage + 1, 'feedback')">下一页</button>
+              </div>
+            </div>
+          </section>
+        </article>
+      </div>
     </div>
 
     <div v-if="detailFeedback" class="modal-mask">

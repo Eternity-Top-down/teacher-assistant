@@ -8,7 +8,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 
-from .ai_client import analyze_lesson_materials, generate_evening_monthly_feedback, generate_feedback, generate_feedback_guidance
+from .ai_client import analyze_lesson_materials, generate_evening_monthly_feedback, generate_feedback
 from .ai_settings import (
     AIConfig,
     ai_settings_summary,
@@ -36,7 +36,6 @@ from .schemas import (
     EveningStudentBulkCreate,
     EveningStudentUpdate,
     FeedbackCreate,
-    FeedbackGuideRequest,
     FeedbackGenerateRequest,
     FeedbackUpdate,
     LoginRequest,
@@ -55,6 +54,8 @@ from .security import CurrentTeacher, create_token, hash_password, verify_passwo
 
 
 app = FastAPI(title="教师一对一反馈助手 API")
+
+MAX_ENABLED_STYLE_EXAMPLES = 5
 
 app.add_middleware(
     CORSMiddleware,
@@ -149,6 +150,21 @@ def list_enabled_style_examples(teacher_id: int, limit: int = 5) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def count_enabled_style_examples(teacher_id: int, exclude_example_id: int | None = None) -> int:
+    query = "SELECT COUNT(*) AS count FROM teacher_style_examples WHERE teacher_id = ? AND enabled = 1"
+    params: list[int] = [teacher_id]
+    if exclude_example_id is not None:
+        query += " AND id != ?"
+        params.append(exclude_example_id)
+    with get_db() as db:
+        return db.execute(query, params).fetchone()["count"]
+
+
+def ensure_style_example_enable_slot(teacher_id: int, exclude_example_id: int | None = None) -> None:
+    if count_enabled_style_examples(teacher_id, exclude_example_id) >= MAX_ENABLED_STYLE_EXAMPLES:
+        raise HTTPException(status_code=400, detail="最多启用 5 条风格样例参与生成，请先停用一条样例")
+
+
 def require_style_example(example_id: int, teacher_id: int) -> dict:
     with get_db() as db:
         row = db.execute(
@@ -208,15 +224,15 @@ def validate_material_images(payload: MaterialsAnalyzeRequest) -> list[dict]:
     for index, image in enumerate(payload.images, start=1):
         mime_type = image.mime_type.lower().strip()
         if mime_type not in ALLOWED_MATERIAL_IMAGE_TYPES:
-            raise HTTPException(status_code=400, detail=f"第 {index} 张图片格式不支持，请上传 JPG、PNG 或 WEBP")
+            raise HTTPException(status_code=400, detail=f"第 {index} 个资料页面格式不支持，请上传 JPG、PNG、WEBP 或 PDF")
         try:
             raw = base64.b64decode(image.data_base64, validate=True)
         except (binascii.Error, ValueError) as exc:
-            raise HTTPException(status_code=400, detail=f"第 {index} 张图片数据无效，请重新选择图片") from exc
+            raise HTTPException(status_code=400, detail=f"第 {index} 个资料页面数据无效，请重新选择") from exc
         if not raw:
-            raise HTTPException(status_code=400, detail=f"第 {index} 张图片为空，请重新选择图片")
+            raise HTTPException(status_code=400, detail=f"第 {index} 个资料页面为空，请重新选择")
         if len(raw) > MAX_MATERIAL_IMAGE_BYTES:
-            raise HTTPException(status_code=400, detail=f"第 {index} 张图片超过 8MB，请压缩后再上传")
+            raise HTTPException(status_code=400, detail=f"第 {index} 个资料页面超过 8MB，请压缩后再上传")
         images.append(
             {
                 "name": image.name.strip() or f"课堂资料{index}",
@@ -394,6 +410,8 @@ def list_style_examples(teacher: dict = CurrentTeacher):
 
 @app.post("/api/settings/style-examples")
 def create_style_example(payload: StyleExampleCreate, teacher: dict = CurrentTeacher):
+    if payload.enabled:
+        ensure_style_example_enable_slot(teacher["id"])
     timestamp = now_iso()
     with get_db() as db:
         cursor = db.execute(
@@ -411,7 +429,9 @@ def create_style_example(payload: StyleExampleCreate, teacher: dict = CurrentTea
 
 @app.put("/api/settings/style-examples/{example_id}")
 def update_style_example(example_id: int, payload: StyleExampleUpdate, teacher: dict = CurrentTeacher):
-    require_style_example(example_id, teacher["id"])
+    existing = require_style_example(example_id, teacher["id"])
+    if payload.enabled and not existing["enabled"]:
+        ensure_style_example_enable_slot(teacher["id"], example_id)
     with get_db() as db:
         db.execute(
             """
@@ -451,12 +471,13 @@ def create_style_example_from_feedback(payload: StyleExampleFromFeedback, teache
     if payload.feedback_type == "one_on_one":
         feedback = require_feedback(payload.feedback_id, teacher["id"])
         content = feedback["final_feedback"]
-        title = payload.title.strip() or f"一对一反馈样例 {feedback['lesson_time']}"
+        title = payload.title.strip() or feedback["lesson_title"] or f"一对一反馈样例 {feedback['lesson_time']}"
     else:
         feedback = require_evening_monthly_feedback(payload.feedback_id, teacher["id"])
         content = feedback["final_feedback"]
         title = payload.title.strip() or f"晚辅月度反馈样例 {feedback['feedback_month']}"
 
+    ensure_style_example_enable_slot(teacher["id"])
     timestamp = now_iso()
     with get_db() as db:
         cursor = db.execute(
@@ -570,7 +591,7 @@ async def create_ai_draft(student_id: int, payload: FeedbackGenerateRequest, tea
             performance_summary=payload.performance_summary,
             advice_summary=payload.advice_summary,
             homework_plan=payload.homework_plan,
-            format_mode=payload.format_mode,
+            emphasis_summary=payload.emphasis_summary,
             style_examples=list_enabled_style_examples(teacher["id"]),
             ai_config=ai_config,
         )
@@ -579,28 +600,6 @@ async def create_ai_draft(student_id: int, payload: FeedbackGenerateRequest, tea
     except Exception as exc:
         raise_ai_exception(exc, "AI 初稿生成")
     return {"draft": draft}
-
-
-@app.post("/api/students/{student_id}/feedbacks/guide")
-async def create_feedback_guide(student_id: int, payload: FeedbackGuideRequest, teacher: dict = CurrentTeacher):
-    student = require_student(student_id, teacher["id"])
-    ai_config = require_teacher_ai_config(teacher["id"])
-    try:
-        questions = await generate_feedback_guidance(
-            student_name=student["name"],
-            subject=student["subject"] or "数学",
-            lesson_title=payload.lesson_title,
-            lesson_summary=payload.lesson_summary,
-            performance_summary=payload.performance_summary,
-            advice_summary=payload.advice_summary,
-            homework_plan=payload.homework_plan,
-            ai_config=ai_config,
-        )
-    except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
-        raise_ai_exception(exc, "我问你答")
-    except Exception as exc:
-        raise_ai_exception(exc, "我问你答")
-    return {"questions": questions}
 
 
 @app.post("/api/students/{student_id}/feedbacks/materials/analyze", response_model=MaterialsAnalyzeResponse)
@@ -617,11 +616,11 @@ async def analyze_feedback_materials(student_id: int, payload: MaterialsAnalyzeR
             ai_config=vision_config,
         )
     except (httpx.HTTPError, KeyError, IndexError, TypeError) as exc:
-        raise_ai_exception(exc, "课堂资料图片识别")
+        raise_ai_exception(exc, "课堂资料识别")
     except ValueError as exc:
-        raise HTTPException(status_code=502, detail=f"图片识别结果格式异常，请重试或换一个图片识别模型。{exc}") from exc
+        raise HTTPException(status_code=502, detail=f"课堂资料识别结果格式异常，请重试或换一个图片识别模型。{exc}") from exc
     except Exception as exc:
-        raise_ai_exception(exc, "课堂资料图片识别")
+        raise_ai_exception(exc, "课堂资料识别")
 
 
 @app.post("/api/students/{student_id}/feedbacks")

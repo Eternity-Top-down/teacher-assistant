@@ -31,22 +31,13 @@ class StudentUpdate(BaseModel):
 
 
 class FeedbackGenerateRequest(BaseModel):
-    format_mode: str = Field(default="structured", pattern=r"^(structured|free_style)$")
     lesson_title: str = Field(min_length=1, max_length=120)
     lesson_time: str = Field(min_length=1)
     lesson_summary: str = Field(min_length=5, max_length=2000)
     performance_summary: str = Field(default="", max_length=1000)
     advice_summary: str = Field(default="", max_length=1000)
     homework_plan: str = Field(default="", max_length=1000)
-
-
-class FeedbackGuideRequest(BaseModel):
-    lesson_title: str = Field(default="", max_length=120)
-    lesson_time: str = Field(default="", max_length=80)
-    lesson_summary: str = Field(default="", max_length=2000)
-    performance_summary: str = Field(default="", max_length=1000)
-    advice_summary: str = Field(default="", max_length=1000)
-    homework_plan: str = Field(default="", max_length=1000)
+    emphasis_summary: str = Field(default="", max_length=1000)
 
 
 class FeedbackCreate(BaseModel):

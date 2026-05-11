@@ -21,6 +21,9 @@ const FIELD_LABELS = {
   base_url: 'Base URL',
   model: '模型名',
   api_key: 'API Key',
+  title: '样例标题',
+  content: '反馈样例',
+  enabled: '启用状态',
 }
 
 export function getToken() {
