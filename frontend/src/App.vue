@@ -49,6 +49,8 @@ const editingClass = ref(null)
 const aiSettings = ref(null)
 const visionSettings = ref(null)
 const styleExamples = ref([])
+const detailStyleExample = ref(null)
+const isEditingStyleExample = ref(false)
 const showAccountMenu = ref(false)
 const showApiOnboarding = ref(false)
 const showSettingsGuide = ref(false)
@@ -138,6 +140,7 @@ const visionSettingsForm = reactive({
 })
 const styleExampleForm = reactive({ title: '', content: '', enabled: true })
 const inlineStyleExampleForm = reactive({ title: '', content: '', enabled: true })
+const styleExampleEditForm = reactive({ title: '', content: '', enabled: true })
 const qaAnswers = reactive(defaultQaAnswers())
 const materialsModalFrame = reactive({ left: 160, top: 80, width: 760, height: 680 })
 const materialsModalDrag = reactive({ active: false, startX: 0, startY: 0, startLeft: 0, startTop: 0, startWidth: 0, startHeight: 0, mode: '' })
@@ -901,6 +904,54 @@ async function saveInlineStyleExample() {
   await createStyleExampleFromForm(inlineStyleExampleForm, '风格样例已添加，可继续填写反馈')
 }
 
+function assignStyleExampleForm(form, example) {
+  form.title = example?.title || ''
+  form.content = example?.content || ''
+  form.enabled = Boolean(example?.enabled)
+}
+
+function openStyleExampleDetail(example) {
+  detailStyleExample.value = example
+  isEditingStyleExample.value = false
+}
+
+function closeStyleExampleDetail() {
+  detailStyleExample.value = null
+  isEditingStyleExample.value = false
+}
+
+function startStyleExampleEdit() {
+  assignStyleExampleForm(styleExampleEditForm, detailStyleExample.value)
+  isEditingStyleExample.value = true
+  resizeAllTextareas()
+}
+
+async function saveStyleExampleEdit() {
+  if (!styleExampleEditForm.content.trim()) return showMessage('请粘贴一段反馈样例')
+  if (
+    styleExampleEditForm.enabled &&
+    !detailStyleExample.value?.enabled &&
+    enabledStyleExampleCount.value >= MAX_ENABLED_STYLE_EXAMPLES
+  ) {
+    return showMessage('最多启用 5 条风格样例参与生成，请先停用一条样例')
+  }
+  loading.value = true
+  try {
+    const data = await request(`/settings/style-examples/${detailStyleExample.value.id}`, {
+      method: 'PUT',
+      body: JSON.stringify(styleExampleEditForm),
+    })
+    await loadStyleExamples()
+    detailStyleExample.value = data.example
+    isEditingStyleExample.value = false
+    showMessage('风格样例已更新')
+  } catch (error) {
+    showMessage(error.message)
+  } finally {
+    loading.value = false
+  }
+}
+
 async function toggleStyleExample(example) {
   if (!example.enabled && enabledStyleExampleCount.value >= MAX_ENABLED_STYLE_EXAMPLES) {
     return showMessage('最多启用 5 条风格样例参与生成，请先停用一条样例')
@@ -912,6 +963,13 @@ async function toggleStyleExample(example) {
       body: JSON.stringify({ ...example, enabled: !example.enabled }),
     })
     await loadStyleExamples()
+    if (detailStyleExample.value?.id === example.id) {
+      detailStyleExample.value = {
+        ...detailStyleExample.value,
+        enabled: !example.enabled,
+      }
+      if (isEditingStyleExample.value) styleExampleEditForm.enabled = !example.enabled
+    }
   } catch (error) {
     showMessage(error.message)
   } finally {
@@ -925,6 +983,7 @@ async function deleteStyleExample(example) {
   try {
     await request(`/settings/style-examples/${example.id}`, { method: 'DELETE' })
     await loadStyleExamples()
+    if (detailStyleExample.value?.id === example.id) closeStyleExampleDetail()
     showMessage('风格样例已删除')
   } catch (error) {
     showMessage(error.message)
@@ -2187,14 +2246,14 @@ onMounted(async () => {
               </div>
 
               <div class="style-example-list">
-                <article v-for="example in paginatedStyleExamples" :key="example.id" class="style-example-item">
+                <article v-for="example in paginatedStyleExamples" :key="example.id" class="style-example-item" role="button" tabindex="0" @click="openStyleExampleDetail(example)" @keydown.enter.prevent="openStyleExampleDetail(example)">
                   <div>
                     <strong>{{ example.title || '未命名样例' }}</strong>
                     <small>{{ example.enabled ? '生成时参考' : '已停用' }} · {{ shortText(example.content, 88) }}</small>
                   </div>
                   <div class="button-row">
-                    <button type="button" class="ghost-btn" :disabled="loading" @click="toggleStyleExample(example)">{{ example.enabled ? '停用' : '启用' }}</button>
-                    <button type="button" class="danger-btn" :disabled="loading" @click="deleteStyleExample(example)">删除</button>
+                    <button type="button" class="ghost-btn" :disabled="loading" @click.stop="toggleStyleExample(example)">{{ example.enabled ? '停用' : '启用' }}</button>
+                    <button type="button" class="danger-btn" :disabled="loading" @click.stop="deleteStyleExample(example)">删除</button>
                   </div>
                 </article>
                 <p v-if="!styleExamples.length" class="settings-hint">还没有风格样例。</p>
@@ -2238,6 +2297,52 @@ onMounted(async () => {
           <button type="button" class="primary-btn" @click="goToApiSettingsFromOnboarding">去设置 API</button>
           <button type="button" class="ghost-btn" @click="closeApiOnboarding">知道了，稍后再说</button>
         </div>
+      </article>
+    </div>
+
+    <div v-if="detailStyleExample" class="modal-mask">
+      <article class="paper-card modal-panel feedback-detail-modal style-example-detail-modal">
+        <div class="modal-title">
+          <div>
+            <p class="eyebrow">个人风格样例</p>
+            <h3>{{ detailStyleExample.title || '未命名样例' }}</h3>
+          </div>
+          <button type="button" class="icon-btn" @click="closeStyleExampleDetail">×</button>
+        </div>
+
+        <template v-if="!isEditingStyleExample">
+          <div class="style-example-meta-row">
+            <span :class="{ active: detailStyleExample.enabled }">{{ detailStyleExample.enabled ? '生成时参考' : '已停用' }}</span>
+            <small>{{ detailStyleExample.source_type === 'manual' ? '手动添加' : '来自已保存反馈' }} · {{ detailStyleExample.updated_at || detailStyleExample.created_at }}</small>
+          </div>
+          <pre>{{ detailStyleExample.content }}</pre>
+          <div class="button-row danger-row">
+            <div class="button-row">
+              <button type="button" class="ghost-btn" :disabled="loading" @click="startStyleExampleEdit">编辑样例</button>
+              <button type="button" class="ghost-btn" :disabled="loading" @click="toggleStyleExample(detailStyleExample)">{{ detailStyleExample.enabled ? '停用' : '启用' }}</button>
+            </div>
+            <button type="button" class="danger-btn" :disabled="loading" @click="deleteStyleExample(detailStyleExample)">删除样例</button>
+          </div>
+        </template>
+
+        <form v-else class="feedback-editor" @submit.prevent="saveStyleExampleEdit">
+          <label>样例标题
+            <input v-model="styleExampleEditForm.title" placeholder="例如：晨钰第3次数学课（4.26）" />
+            <small>标题只用于管理样例，不参与 AI 学习。</small>
+          </label>
+          <label>反馈样例
+            <textarea v-model="styleExampleEditForm.content" class="auto-textarea final-text" @input="autoResize"></textarea>
+            <small>AI 只学习这里的正文内容。若希望 AI 学习你的标题格式，请把标题行也一起粘贴到这里。</small>
+          </label>
+          <label class="check-row">
+            <input v-model="styleExampleEditForm.enabled" type="checkbox" />
+            <span>启用后参与后续反馈生成</span>
+          </label>
+          <div class="button-row">
+            <button class="primary-btn" :disabled="loading">保存修改</button>
+            <button type="button" class="ghost-btn" :disabled="loading" @click="isEditingStyleExample = false">取消</button>
+          </div>
+        </form>
       </article>
     </div>
 
@@ -2452,14 +2557,14 @@ onMounted(async () => {
               <small>{{ styleExamples.length ? `${styleExamples.length} 条样例` : '暂无样例' }}</small>
             </div>
             <div class="style-example-list">
-              <article v-for="example in paginatedFeedbackStyleExamples" :key="example.id" class="style-example-item">
+              <article v-for="example in paginatedFeedbackStyleExamples" :key="example.id" class="style-example-item" role="button" tabindex="0" @click="openStyleExampleDetail(example)" @keydown.enter.prevent="openStyleExampleDetail(example)">
                 <div>
                   <strong>{{ example.title || '未命名样例' }}</strong>
                   <small>{{ example.enabled ? '生成时参考' : '已停用' }} · {{ shortText(example.content, 88) }}</small>
                 </div>
                 <div class="button-row">
-                  <button type="button" class="ghost-btn" :disabled="loading" @click="toggleStyleExample(example)">{{ example.enabled ? '停用' : '启用' }}</button>
-                  <button type="button" class="danger-btn" :disabled="loading" @click="deleteStyleExample(example)">删除</button>
+                  <button type="button" class="ghost-btn" :disabled="loading" @click.stop="toggleStyleExample(example)">{{ example.enabled ? '停用' : '启用' }}</button>
+                  <button type="button" class="danger-btn" :disabled="loading" @click.stop="deleteStyleExample(example)">删除</button>
                 </div>
               </article>
               <p v-if="!styleExamples.length" class="settings-hint">还没有风格样例，可以先在上方粘贴一段自己的反馈。</p>

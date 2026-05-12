@@ -2377,6 +2377,16 @@ body::before {
   border: 2px solid rgba(101, 185, 111, 0.34);
   border-radius: 14px;
   background: rgba(245, 255, 242, 0.62);
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.style-example-item:hover,
+.style-example-item:focus-visible {
+  border-color: rgba(101, 185, 111, 0.72);
+  background: #f6fff2;
+  outline: none;
+  transform: translateY(-1px);
 }
 
 .style-example-item > div:first-child {
@@ -2388,6 +2398,36 @@ body::before {
 .style-example-item small {
   color: var(--muted);
   line-height: 1.5;
+}
+
+.style-example-detail-modal {
+  width: min(760px, calc(100vw - 32px));
+}
+
+.style-example-meta-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.style-example-meta-row span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #fff3d5;
+  color: #93642a;
+  font-weight: 900;
+}
+
+.style-example-meta-row span.active {
+  background: #e8f8e6;
+  color: #2f7a48;
+}
+
+.style-example-meta-row small {
+  color: var(--muted);
+  font-weight: 800;
 }
 
 @media (max-width: 920px) {
