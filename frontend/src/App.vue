@@ -2174,6 +2174,7 @@ onMounted(async () => {
 
               <label>反馈样例
                 <textarea v-model="styleExampleForm.content" class="auto-textarea final-text" placeholder="粘贴一段你写过的完整反馈" @input="autoResize"></textarea>
+                <small>AI 只学习这里的正文内容。若希望 AI 学习你的标题格式，请把标题行也一起粘贴到这里。</small>
               </label>
 
               <label class="check-row">
@@ -2434,6 +2435,7 @@ onMounted(async () => {
             </label>
             <label>反馈样例
               <textarea v-model="inlineStyleExampleForm.content" class="auto-textarea large-text" placeholder="粘贴一段你写过的完整反馈" @input="autoResize"></textarea>
+              <small>AI 只学习这里的正文内容。若希望 AI 学习你的标题格式，请把标题行也一起粘贴到这里。</small>
             </label>
             <label class="check-row">
               <input v-model="inlineStyleExampleForm.enabled" type="checkbox" />
