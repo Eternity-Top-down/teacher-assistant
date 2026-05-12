@@ -10,7 +10,7 @@
 - 反馈效率工具：反馈表单草稿自动保存、历史反馈按时间筛选、全局反馈查询、最终反馈一键复制。
 - AI 反馈生成：支持 OpenAI-compatible Chat Completions API；没有启用个人风格样例时按标准四段结构生成，启用样例后按老师个人风格生成。
 - 课堂资料识别：支持上传 JPG、PNG、WEBP 课堂图片和 PDF，调用视觉模型提炼知识点、题型和易错点。
-- 个人风格样例：维护个人反馈样例，生成时只学习语气、结构和详略；样例库不限量，最多启用 5 条参与生成，支持从已保存反馈一键设为样例。
+- 个人风格样例：维护个人反馈样例，支持新增、查看详情、编辑、启用/停用、删除；生成时只学习语气、结构和详略，最多启用 5 条参与生成，支持从已保存反馈一键设为样例。
 - 晚辅模块：维护晚辅班级、批量录入晚辅学生，生成和管理晚辅月度作业反馈。
 - 本地数据：默认使用 SQLite，本地自动建表；API Key 加密存储，不在前端回显明文。
 
@@ -154,6 +154,30 @@ SMTP_FROM=你的QQ邮箱
 
 内置模型预设会尽量跟随各厂商 OpenAI-compatible 官方文档更新。若控制台提示模型无权限或未开通，可优先保留 Base URL，只把模型名改成账号控制台显示的可用模型或推理接入点 ID。
 
+当前内置预设重点覆盖：
+
+- DeepSeek：`https://api.deepseek.com`，默认 `deepseek-v4-flash`。
+- 阿里云百炼：`https://dashscope.aliyuncs.com/compatible-mode/v1`，默认 `qwen3.6-plus`；若账号未开放可改用控制台可见的 Qwen 模型。
+- Kimi / Moonshot：`https://api.moonshot.ai/v1`，文本默认 `kimi-k2.6`。
+- 智谱 AI：`https://open.bigmodel.cn/api/paas/v4`，文本默认 `glm-4-flash-250414`，视觉默认 `glm-4.6v-flash`。
+- OpenAI：`https://api.openai.com/v1`，默认 `gpt-5.4-mini`；若账号未开放可改用 `gpt-4.1-mini` 等可用模型。
+- 火山方舟豆包视觉：`https://ark.cn-beijing.volces.com/api/v3`，默认 `doubao-1.5-vision-pro-32k`；若控制台要求推理接入点，模型名填写 `ep-...`。
+
+### 个人风格样例
+
+样例标题只用于在样例库中管理和查找，不直接参与 AI 学习。AI 实际读取的是“反馈样例”正文内容。
+
+如果希望 AI 学习标题格式，请把标题行也一起粘贴到“反馈样例”正文中，例如：
+
+```text
+晨钰第3次数学课（4.26）
+
+📖1.课堂学习内容：
+……
+```
+
+建议启用 3-5 条自己满意的真实反馈样例，尽量覆盖不同学生、不同课次和不同表现类型。若担心串用真实学生名，可先把样例中的姓名匿名化为“学生A / 学生B”。
+
 ### 前端 API 地址
 
 前端默认使用：
@@ -196,6 +220,57 @@ npm run build
 ```bash
 cd frontend
 npm run preview
+```
+
+## 服务器部署与更新
+
+一个常见部署方式是让 Nginx 对外监听 `8080`，前端静态文件由 Nginx 提供，`/api/*` 转发到本机 FastAPI 后端 `127.0.0.1:8000`。
+
+后端代码本身已经使用 `/api/...` 路由，FastAPI 不需要额外设置 `root_path="/api"`。
+
+Nginx 反向代理建议保留完整请求路径：
+
+```nginx
+location /api/ {
+    proxy_pass http://127.0.0.1:8000$request_uri;
+    proxy_http_version 1.1;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+服务器更新代码的常规流程：
+
+```bash
+cd /home/ubuntu/teacher-assistant
+git pull
+cd frontend
+npm install
+npm run build
+sudo systemctl restart teacher-assistant-backend
+```
+
+更新后检查：
+
+```bash
+curl -i http://127.0.0.1:8000/api/health
+curl -i http://127.0.0.1:8080/api/health
+```
+
+两条都应返回：
+
+```json
+{"ok":true}
+```
+
+只有修改 Nginx 配置时才需要：
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
 ```
 
 ## 数据与安全

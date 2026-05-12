@@ -19,7 +19,16 @@
 
 ## 未发布
 
-- 暂无待归档变更。
+### 模型预设、风格样例维护与部署说明更新
+
+证据：当前工作区 diff，涉及 `frontend/src/App.vue`、`frontend/src/styles.css`、`backend/app/ai_settings.py`、`backend/app/config.py`、`backend/.env.example`、`README.md` 和 `CHANGELOG.md`。
+
+- 更新内置模型预设默认值和说明，使 DeepSeek、阿里云百炼、Kimi、智谱、OpenAI、豆包视觉等 OpenAI-compatible 配置更贴近当前官方文档和控制台模型命名。
+- 将默认全局 AI 兜底配置从 OpenAI 示例调整为 DeepSeek `https://api.deepseek.com` + `deepseek-v4-flash`，降低新用户配置门槛。
+- 优化个人风格样例说明，明确“样例标题”只用于管理，“反馈样例”正文才会参与 AI 风格学习；如需学习标题格式，应把标题行一并粘贴到正文框。
+- 增强个人风格样例库，支持点击样例卡片查看完整内容、编辑标题/正文/启用状态、启用/停用和删除，设置页与新增反馈弹窗中的样例库保持一致。
+- 新增 `online/` 忽略规则，用于本地临时保存服务器代码快照，避免服务器 `.env`、数据库或构建产物误提交。
+- 补充 README 中服务器更新、反向代理路径和数据库/环境变量维护注意事项，减少部署时路径、端口和数据文件混淆。
 
 ## 2026-05-07
 
