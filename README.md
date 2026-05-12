@@ -115,8 +115,8 @@ SMTP_PASSWORD=
 SMTP_FROM=
 
 AI_API_KEY=
-AI_BASE_URL=https://api.openai.com/v1
-AI_MODEL=gpt-4o-mini
+AI_BASE_URL=https://api.deepseek.com
+AI_MODEL=deepseek-v4-flash
 ALLOW_GLOBAL_AI_FALLBACK=false
 ```
 
@@ -151,6 +151,8 @@ SMTP_FROM=你的QQ邮箱
 每个老师账号的模型配置相互独立。API Key 会加密保存在 SQLite 数据库中，前端只显示是否已配置，不回显明文。
 
 `backend/.env` 中的 `AI_API_KEY`、`AI_BASE_URL`、`AI_MODEL` 只作为本地开发兜底配置。默认 `ALLOW_GLOBAL_AI_FALLBACK=false`，未配置个人 API Key 的老师不会共用全局模型。只有显式设为 `true` 时，后端才会启用全局兜底。
+
+内置模型预设会尽量跟随各厂商 OpenAI-compatible 官方文档更新。若控制台提示模型无权限或未开通，可优先保留 Base URL，只把模型名改成账号控制台显示的可用模型或推理接入点 ID。
 
 ### 前端 API 地址
 

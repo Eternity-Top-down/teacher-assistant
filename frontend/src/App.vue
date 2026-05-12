@@ -124,8 +124,8 @@ const monthlyForm = reactive(newMonthlyFeedback())
 const monthlyEditForm = reactive(newMonthlyFeedback())
 const aiSettingsForm = reactive({
   provider: 'deepseek',
-  base_url: 'https://api.deepseek.com/v1',
-  model: 'deepseek-chat',
+  base_url: 'https://api.deepseek.com',
+  model: 'deepseek-v4-flash',
   api_key: '',
   clear_api_key: false,
 })
@@ -150,43 +150,43 @@ const settingsPanels = reactive({
 const AI_PRESETS = {
   deepseek: {
     label: 'DeepSeek（推荐）',
-    base_url: 'https://api.deepseek.com/v1',
-    model: 'deepseek-chat',
-    hint: '适合生成课后反馈初稿，中文表达稳定，性价比较高。',
+    base_url: 'https://api.deepseek.com',
+    model: 'deepseek-v4-flash',
+    hint: '适合生成课后反馈初稿，中文表达稳定，性价比较高。deepseek-chat 将退役，新配置建议使用 deepseek-v4-flash。',
     api_key_url: 'https://platform.deepseek.com/api_keys',
-    docs_url: 'https://api-docs.deepseek.com/api/deepseek-api',
+    docs_url: 'https://api-docs.deepseek.com/',
   },
   qwen: {
     label: '阿里云百炼 - 通义千问',
     base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    model: 'qwen-plus',
-    hint: '适合中国大陆用户，中文反馈、总结和润色场景都比较顺手。',
+    model: 'qwen3.6-plus',
+    hint: '适合中国大陆用户，中文反馈、总结和润色场景都比较顺手。若账号暂未开放新模型，可改用 qwen-plus。',
     api_key_url: 'https://bailian.console.aliyun.com/?tab=model#/api-key',
-    docs_url: 'https://www.alibabacloud.com/help/en/model-studio/use-qwen-by-calling-api',
+    docs_url: 'https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope',
   },
   kimi: {
     label: 'Kimi / Moonshot',
     base_url: 'https://api.moonshot.ai/v1',
-    model: 'kimi-k2.5',
-    hint: '适合长上下文材料整理，也可用于生成自然、完整的反馈正文。',
+    model: 'kimi-k2.6',
+    hint: '适合长上下文材料整理，也可用于生成自然、完整的反馈正文。需要视觉输入时建议切到图片识别模型里的 Kimi K2.5。',
     api_key_url: 'https://platform.moonshot.ai/console/api-keys',
     docs_url: 'https://platform.moonshot.ai/docs/overview',
   },
   zhipu: {
     label: '智谱 AI',
     base_url: 'https://open.bigmodel.cn/api/paas/v4',
-    model: 'glm-4-flash',
-    hint: '适合中文反馈生成和日常教育文本润色，可按账号权限替换为更高阶模型。',
+    model: 'glm-4-flash-250414',
+    hint: '适合中文反馈生成和日常教育文本润色；如账号支持更新的 GLM 系列，可按控制台模型名替换。',
     api_key_url: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys',
-    docs_url: 'https://docs.bigmodel.cn/cn/guide/start/introduction',
+    docs_url: 'https://docs.bigmodel.cn/cn/guide/develop/openai/introduction',
   },
   openai: {
     label: 'OpenAI',
     base_url: 'https://api.openai.com/v1',
-    model: 'gpt-4o-mini',
-    hint: '适合高质量文本生成；请确认网络、账号和付款方式可用。',
+    model: 'gpt-5.4-mini',
+    hint: '适合高质量文本生成；请确认网络、账号和付款方式可用。若账号暂未开放，可改用 gpt-4.1-mini。',
     api_key_url: 'https://platform.openai.com/api-keys',
-    docs_url: 'https://platform.openai.com/docs/quickstart',
+    docs_url: 'https://platform.openai.com/docs/models/gpt-5.4-mini',
   },
   custom: { label: '自定义兼容接口', base_url: '', model: '', hint: '用于其他 OpenAI-compatible 文本生成模型。', api_key_url: '', docs_url: '' },
 }
@@ -217,20 +217,20 @@ const VISION_PRESETS = {
     docs_url: 'https://platform.moonshot.ai/docs/guide/use-kimi-vision-model',
   },
   zhipu_v: {
-    label: '智谱 AI - GLM-4V',
+    label: '智谱 AI - GLM 视觉模型',
     base_url: 'https://open.bigmodel.cn/api/paas/v4',
-    model: 'glm-4v-plus-0111',
-    hint: '适合图片理解、视觉总结和教育课件类场景。',
+    model: 'glm-4.6v-flash',
+    hint: '适合图片理解、视觉总结和教育课件类场景；如需更高质量可按账号权限改用 glm-4v-plus-0111。',
     api_key_url: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys',
-    docs_url: 'https://docs.bigmodel.cn/cn/guide/models/vlm/glm-4v-plus-0111',
+    docs_url: 'https://docs.bigmodel.cn/cn/guide/models/free/glm-4.6v-flash',
   },
   deepseek: {
     label: 'DeepSeek（通常不推荐用于图片识别）',
-    base_url: 'https://api.deepseek.com/v1',
-    model: 'deepseek-chat',
+    base_url: 'https://api.deepseek.com',
+    model: 'deepseek-v4-flash',
     hint: 'DeepSeek 常用于文本生成；请确认当前模型是否支持图片输入。课堂资料识别需要视觉/多模态模型。',
     api_key_url: 'https://platform.deepseek.com/api_keys',
-    docs_url: 'https://api-docs.deepseek.com/api/deepseek-api',
+    docs_url: 'https://api-docs.deepseek.com/',
   },
   custom: { label: '自定义兼容接口', base_url: '', model: '', hint: '用于其他 OpenAI-compatible 多模态供应商。', api_key_url: '', docs_url: '' },
 }
@@ -2072,13 +2072,13 @@ onMounted(async () => {
               </div>
 
               <label>Base URL
-                <input v-model="aiSettingsForm.base_url" placeholder="https://api.deepseek.com/v1" />
+                <input v-model="aiSettingsForm.base_url" placeholder="https://api.deepseek.com" />
                 <small>模型平台的 OpenAI-compatible 接口地址。</small>
               </label>
 
               <label>模型名
-                <input v-model="aiSettingsForm.model" placeholder="deepseek-chat" />
-                <small>示例：deepseek-chat、qwen-plus、kimi-k2.5、glm-4-flash。</small>
+                <input v-model="aiSettingsForm.model" placeholder="deepseek-v4-flash" />
+                <small>示例：deepseek-v4-flash、qwen3.6-plus、kimi-k2.6、glm-4-flash-250414。</small>
               </label>
 
               <label>API Key
@@ -2130,7 +2130,7 @@ onMounted(async () => {
 
               <label>模型名
                 <input v-model="visionSettingsForm.model" placeholder="doubao-1.5-vision-pro-32k" />
-                <small>示例：doubao-1.5-vision-pro-32k、ep-...、qwen-vl-ocr-latest、kimi-k2.5、glm-4v-plus-0111。</small>
+                <small>示例：doubao-1.5-vision-pro-32k、ep-...、qwen3-vl-plus、qwen-vl-ocr-latest、kimi-k2.5、glm-4.6v-flash。</small>
               </label>
 
               <label>API Key

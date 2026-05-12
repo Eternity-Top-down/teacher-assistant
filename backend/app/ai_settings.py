@@ -64,8 +64,8 @@ def ai_settings_summary(row: dict | None) -> dict:
     if not row:
         return {
             "provider": "deepseek",
-            "base_url": "https://api.deepseek.com/v1",
-            "model": "deepseek-chat",
+            "base_url": "https://api.deepseek.com",
+            "model": "deepseek-v4-flash",
             "has_api_key": False,
             "feedback_format_mode": "structured",
             "updated_at": "",
