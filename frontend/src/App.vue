@@ -62,7 +62,7 @@ const materialAnalysis = ref(null)
 const materialsAnalyzing = ref(false)
 const materialsConverting = ref(false)
 const classroomContentMode = ref('qa')
-const feedbackEmphasis = ref('')
+const feedbackSupplement = ref('')
 const feedbackDraftStatus = ref('')
 const hasSavedFeedbackDraft = ref(false)
 const styleExamplePage = ref(1)
@@ -539,7 +539,7 @@ function resetFeedbackForm() {
   assignFeedback(feedbackForm, newFeedback())
   Object.assign(qaAnswers, defaultQaAnswers())
   classroomContentMode.value = 'qa'
-  feedbackEmphasis.value = ''
+  feedbackSupplement.value = ''
   clearMaterialImages()
   feedbackDraftStatus.value = ''
 }
@@ -569,6 +569,7 @@ function feedbackDraftHasContent(draft) {
     hasFeedbackDraft(draft?.feedback || {}) ||
       draft?.material_analysis ||
       Object.values(draft?.qa_answers || {}).some((value) => String(value || '').trim()) ||
+      draft?.supplement_summary?.trim() ||
       draft?.emphasis_summary?.trim()
   )
 }
@@ -596,7 +597,7 @@ function saveFeedbackDraft() {
     feedback_panels: { ...feedbackPanels },
     content_mode: classroomContentMode.value,
     qa_answers: { ...qaAnswers },
-    emphasis_summary: feedbackEmphasis.value,
+    supplement_summary: feedbackSupplement.value,
     material_analysis: materialAnalysis.value,
     updated_at: new Date().toISOString(),
   }
@@ -615,7 +616,7 @@ function applyFeedbackDraft(draft) {
   Object.assign(feedbackPanels, defaultFeedbackPanels(), draft.feedback_panels || {})
   Object.assign(qaAnswers, defaultQaAnswers(), draft.qa_answers || {})
   classroomContentMode.value = draft.content_mode === 'free' ? 'free' : 'qa'
-  feedbackEmphasis.value = draft.emphasis_summary || ''
+  feedbackSupplement.value = draft.supplement_summary || draft.emphasis_summary || ''
   clearMaterialImages()
   materialAnalysis.value = draft.material_analysis || null
   feedbackDraftStatus.value = '已恢复草稿'
@@ -1136,7 +1137,7 @@ function closeMaterialsModal() {
 }
 
 function closeCreateFeedback() {
-  if ((hasFeedbackDraft(feedbackForm) || hasQaAnswers() || feedbackEmphasis.value.trim()) && !window.confirm('这条反馈还没有保存，确定关闭吗？')) return
+  if ((hasFeedbackDraft(feedbackForm) || hasQaAnswers() || feedbackSupplement.value.trim()) && !window.confirm('这条反馈还没有保存，确定关闭吗？')) return
   showFeedbackStyleModal.value = false
   showMaterialsModal.value = false
   showCreateModal.value = false
@@ -1470,7 +1471,7 @@ async function generateDraft() {
         lesson_time: feedbackForm.lesson_time,
         lesson_title: titleForGenerate(feedbackForm.lesson_title, feedbackForm.lesson_time),
         ...contentPayload,
-        emphasis_summary: feedbackEmphasis.value,
+        supplement_summary: feedbackSupplement.value,
       }),
     })
     feedbackForm.ai_draft = data.draft
@@ -2300,7 +2301,7 @@ onMounted(async () => {
       </article>
     </div>
 
-    <div v-if="detailStyleExample" class="modal-mask">
+    <div v-if="detailStyleExample" class="modal-mask style-example-detail-mask">
       <article class="paper-card modal-panel feedback-detail-modal style-example-detail-modal">
         <div class="modal-title">
           <div>
@@ -2415,10 +2416,11 @@ onMounted(async () => {
               <label v-for="field in QA_FIELDS" :key="field.key" class="qa-question">
                 <span>{{ field.title }}</span>
                 <small>{{ field.example }}</small>
-                <textarea v-model="qaAnswers[field.key]" class="auto-textarea" placeholder="按课堂真实情况简单写几句即可" @input="autoResize"></textarea>
+                <textarea v-model="qaAnswers[field.key]" class="auto-textarea" placeholder="按课堂真实情况填写，越具体越有助于生成贴合课堂的反馈" @input="autoResize"></textarea>
               </label>
-              <div class="button-row">
+              <div class="button-row classroom-generate-row">
                 <button type="button" class="ghost-btn" :disabled="loading" @click="convertQaToFree">转为自由编辑</button>
+                <button type="button" class="primary-btn" :disabled="loading" @click="generateDraft">生成 AI 初稿</button>
               </div>
             </div>
 
@@ -2427,7 +2429,10 @@ onMounted(async () => {
               <label>2. 课堂表现与知识掌握情况<textarea v-model="feedbackForm.performance_summary" class="auto-textarea" placeholder="写学生状态、掌握得好的地方、需要关注的问题" @input="autoResize"></textarea></label>
               <label>3. 课后建议<textarea v-model="feedbackForm.advice_summary" class="auto-textarea" placeholder="写你想给学生/家长的具体建议，AI 会润色成可执行方案" @input="autoResize"></textarea></label>
               <label>4. 作业安排<textarea v-model="feedbackForm.homework_plan" class="auto-textarea" placeholder="严格填写本次需要布置给学生的作业，AI 只润色不新增" @input="autoResize"></textarea></label>
-              <label>重点强调<textarea v-model="feedbackEmphasis" class="auto-textarea" placeholder="可选。比如希望反馈更突出学习习惯、错题复盘、课堂进步或家长配合方式" @input="autoResize"></textarea></label>
+              <label>内容补充<textarea v-model="feedbackSupplement" class="auto-textarea" placeholder="可选。填写不适合放入前四栏、但希望 AI 参考并写进反馈的补充信息" @input="autoResize"></textarea></label>
+              <div class="button-row classroom-generate-row">
+                <button type="button" class="primary-btn" :disabled="loading" @click="generateDraft">生成 AI 初稿</button>
+              </div>
             </div>
           </div>
         </section>
@@ -2442,7 +2447,7 @@ onMounted(async () => {
           <label v-show="feedbackPanels.final"><textarea v-model="feedbackForm.final_feedback" class="auto-textarea final-text" @input="autoResize"></textarea></label>
         </section>
 
-        <div class="button-row feedback-action-row"><button type="button" class="ghost-btn" :disabled="loading" @click="generateDraft">生成 AI 初稿</button><button type="button" class="ghost-btn" :disabled="loading" @click="copyFeedbackText(feedbackForm.final_feedback)">复制最终反馈</button><button class="primary-btn" :disabled="loading">保存最终反馈</button></div>
+        <div class="button-row feedback-action-row"><button type="button" class="ghost-btn" :disabled="loading" @click="copyFeedbackText(feedbackForm.final_feedback)">复制最终反馈</button><button class="primary-btn" :disabled="loading">保存最终反馈</button></div>
 	      </form>
 
       <div v-if="showMaterialsModal" class="nested-modal-mask transparent-mask">

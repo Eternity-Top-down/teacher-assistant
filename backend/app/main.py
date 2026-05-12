@@ -591,7 +591,7 @@ async def create_ai_draft(student_id: int, payload: FeedbackGenerateRequest, tea
             performance_summary=payload.performance_summary,
             advice_summary=payload.advice_summary,
             homework_plan=payload.homework_plan,
-            emphasis_summary=payload.emphasis_summary,
+            supplement_summary=payload.supplement_summary,
             style_examples=list_enabled_style_examples(teacher["id"]),
             ai_config=ai_config,
         )

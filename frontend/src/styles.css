@@ -1893,6 +1893,10 @@ body::before {
   z-index: 30;
 }
 
+.style-example-detail-mask {
+  z-index: 70;
+}
+
 .account-menu {
   z-index: 20;
 }
@@ -2009,6 +2013,11 @@ body::before {
   color: var(--muted);
   line-height: 1.55;
   font-weight: 700;
+}
+
+.classroom-generate-row {
+  justify-content: flex-start;
+  padding-top: 2px;
 }
 
 .feedback-style-entry {

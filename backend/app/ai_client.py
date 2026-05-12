@@ -67,7 +67,7 @@ def fallback_feedback(
     performance_summary: str,
     advice_summary: str,
     homework_plan: str,
-    emphasis_summary: str = "",
+    supplement_summary: str = "",
 ) -> str:
     subject_name = subject or "数学"
     display_name = student_display_name(student_name)
@@ -76,8 +76,8 @@ def fallback_feedback(
     title = title_with_date(raw_title, lesson_date)
     performance = performance_summary or "老师本次未填写具体课堂表现，建议后续结合课堂观察继续补充。"
     advice = advice_summary or "课后建议围绕本节课内容及时复习，整理课堂中讲到的方法和容易出错的地方，再结合类似题型做巩固。"
-    if emphasis_summary:
-        advice = f"{advice}\n\n本次反馈可重点关注：{emphasis_summary}"
+    if supplement_summary:
+        advice = f"{advice}\n\n课堂补充信息：{supplement_summary}"
     homework = homework_plan or "本次老师未填写具体作业安排。"
     return f"""{title}
 
@@ -110,7 +110,7 @@ async def generate_feedback(
     performance_summary: str,
     advice_summary: str,
     homework_plan: str,
-    emphasis_summary: str = "",
+    supplement_summary: str = "",
     style_examples: list[dict] | None = None,
     ai_config: AIConfig | None = None,
 ) -> str:
@@ -131,7 +131,7 @@ async def generate_feedback(
             performance_summary,
             advice_summary,
             homework_plan,
-            emphasis_summary,
+            supplement_summary,
         )
 
     subject_name = subject or "数学"
@@ -157,6 +157,8 @@ async def generate_feedback(
 5. 语气自然、具体、克制，像老师写给家长的课后记录，少用“扎实基础、奠定基础、逐步提升”等空泛套话。
 6. 反馈标题和正文称呼学生时只使用“{display_name}”，不要使用完整姓名“{student_name}”。
 7. 作业安排必须严格根据老师输入润色；如果老师未输入作业安排，不得自行安排作业。
+8. 老师输入可能是一句话、流水账或无序文本；生成前请先提取事实并分点归纳，再组织反馈正文。
+9. 归纳时：课堂学习内容提取知识点、题型、方法和练习内容；课堂表现提取课堂状态、掌握较好处和薄弱点；课后建议提取可执行建议；作业安排严格按老师输入整理。
 
 内置优秀表达原则（只学习表达方式）：
 1. 先具体肯定学生做得好的地方，再温和指出需要关注的问题。
@@ -187,8 +189,8 @@ async def generate_feedback(
 作业安排：
 {homework_plan or "老师未填写具体作业安排。"}
 
-重点强调：
-{emphasis_summary or "老师未额外填写重点强调；请以四大板块事实为主生成。"}
+内容补充：
+{supplement_summary or "老师未额外填写内容补充；请以四大板块事实为主生成。"}
 """.strip()
 
     if has_style_examples:
@@ -202,7 +204,7 @@ async def generate_feedback(
 3. 可以保留清楚的小标题，但不要机械套用“课堂学习内容/课堂表现/课后建议/作业安排”四标题。
 4. 必须覆盖本次课堂输入里的课程内容、课堂表现、课后建议和作业安排；如果某项没有输入，只能做保守说明。
 5. 如果老师填写了作业安排，必须体现；如果没有填写，不要编造作业。
-6. 如果老师填写了重点强调，只用于调整详略、语气和强调顺序，不得替代四大板块内容。
+6. 如果老师填写了内容补充，可将其作为额外事实来源合并进相关段落，但不得替代四大板块内容。
 """.strip()
     else:
         prompt = f"""
@@ -212,7 +214,7 @@ async def generate_feedback(
 额外规则：
 1. 标题前必须使用指定 emoji，每个标题前有且只有 1 个 emoji；正文不要额外大量添加 emoji。
 2. 作业安排如果未填写，第 4 段写“本次老师未填写具体作业安排。”
-3. 如果老师填写了重点强调，只能在覆盖四段内容的前提下调整重点，不得忽略任何一段。
+3. 如果老师填写了内容补充，可在覆盖四段内容的前提下合并到相关段落，不得忽略任何一段。
 
 必须使用以下固定结构：
 {title}

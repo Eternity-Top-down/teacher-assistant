@@ -37,7 +37,7 @@ class FeedbackGenerateRequest(BaseModel):
     performance_summary: str = Field(default="", max_length=1000)
     advice_summary: str = Field(default="", max_length=1000)
     homework_plan: str = Field(default="", max_length=1000)
-    emphasis_summary: str = Field(default="", max_length=1000)
+    supplement_summary: str = Field(default="", max_length=1000)
 
 
 class FeedbackCreate(BaseModel):
