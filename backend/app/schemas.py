@@ -38,6 +38,7 @@ class FeedbackGenerateRequest(BaseModel):
     advice_summary: str = Field(default="", max_length=1000)
     homework_plan: str = Field(default="", max_length=1000)
     supplement_summary: str = Field(default="", max_length=1000)
+    use_style_examples: bool = True
 
 
 class FeedbackCreate(BaseModel):
@@ -64,12 +65,18 @@ class FeedbackUpdate(BaseModel):
 
 class EveningClassCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
-    note: str = Field(default="", max_length=500)
 
 
 class EveningClassUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
-    note: str = Field(default="", max_length=500)
+
+
+class GroupClassCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+class GroupClassUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
 
 
 class EveningStudentBulkCreate(BaseModel):
@@ -80,7 +87,6 @@ class EveningStudentUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=50)
     grade: str = Field(default="", max_length=50)
     school: str = Field(default="", max_length=100)
-    note: str = Field(default="", max_length=500)
 
 
 class EveningMonthlyGenerateRequest(BaseModel):

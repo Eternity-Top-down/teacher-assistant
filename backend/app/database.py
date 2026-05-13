@@ -74,7 +74,15 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 teacher_id INTEGER NOT NULL,
                 name TEXT NOT NULL,
-                note TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS group_classes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                teacher_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE
@@ -87,7 +95,6 @@ def init_db() -> None:
                 name TEXT NOT NULL,
                 grade TEXT NOT NULL DEFAULT '',
                 school TEXT NOT NULL DEFAULT '',
-                note TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE,
@@ -166,3 +173,59 @@ def init_db() -> None:
             db.execute(
                 "ALTER TABLE teacher_ai_settings ADD COLUMN feedback_format_mode TEXT NOT NULL DEFAULT 'structured'"
             )
+        evening_class_columns = {
+            row["name"]
+            for row in db.execute("PRAGMA table_info(evening_classes)").fetchall()
+        }
+        if "note" in evening_class_columns:
+            db.execute("PRAGMA foreign_keys = OFF")
+            db.executescript(
+                """
+                CREATE TABLE evening_classes_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    teacher_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE
+                );
+                INSERT INTO evening_classes_new (id, teacher_id, name, created_at, updated_at)
+                SELECT id, teacher_id, name, created_at, updated_at FROM evening_classes;
+                DROP TABLE evening_classes;
+                ALTER TABLE evening_classes_new RENAME TO evening_classes;
+                """
+            )
+            violations = db.execute("PRAGMA foreign_key_check").fetchall()
+            db.execute("PRAGMA foreign_keys = ON")
+            if violations:
+                raise RuntimeError("evening_classes migration failed foreign key check")
+        evening_student_columns = {
+            row["name"]
+            for row in db.execute("PRAGMA table_info(evening_students)").fetchall()
+        }
+        if "note" in evening_student_columns:
+            db.execute("PRAGMA foreign_keys = OFF")
+            db.executescript(
+                """
+                CREATE TABLE evening_students_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    teacher_id INTEGER NOT NULL,
+                    class_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    grade TEXT NOT NULL DEFAULT '',
+                    school TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE,
+                    FOREIGN KEY (class_id) REFERENCES evening_classes(id) ON DELETE CASCADE
+                );
+                INSERT INTO evening_students_new (id, teacher_id, class_id, name, grade, school, created_at, updated_at)
+                SELECT id, teacher_id, class_id, name, grade, school, created_at, updated_at FROM evening_students;
+                DROP TABLE evening_students;
+                ALTER TABLE evening_students_new RENAME TO evening_students;
+                """
+            )
+            violations = db.execute("PRAGMA foreign_key_check").fetchall()
+            db.execute("PRAGMA foreign_keys = ON")
+            if violations:
+                raise RuntimeError("evening_students migration failed foreign key check")

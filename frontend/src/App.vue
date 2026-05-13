@@ -27,6 +27,7 @@ const oneStudents = ref([])
 const currentStudent = ref(null)
 const feedbacks = ref([])
 const feedbackSearchResults = ref([])
+const eveningFeedbackSearchResults = ref([])
 const detailFeedback = ref(null)
 const showCreateModal = ref(false)
 const showStudentModal = ref(false)
@@ -40,12 +41,16 @@ const eveningStudents = ref([])
 const currentEveningStudent = ref(null)
 const eveningFeedbacks = ref([])
 const eveningDetail = ref(null)
+const groupClasses = ref([])
+const currentGroupClass = ref(null)
 const showClassModal = ref(false)
+const showGroupClassModal = ref(false)
 const showBulkModal = ref(false)
 const showEveningStudentModal = ref(false)
 const showMonthlyModal = ref(false)
 const isEditingEveningDetail = ref(false)
 const editingClass = ref(null)
+const editingGroupClass = ref(null)
 const aiSettings = ref(null)
 const visionSettings = ref(null)
 const styleExamples = ref([])
@@ -56,6 +61,7 @@ const showApiOnboarding = ref(false)
 const showSettingsGuide = ref(false)
 const showFeedbackStyleModal = ref(false)
 const showMaterialsModal = ref(false)
+const showWritingReference = ref(false)
 const materialInput = ref(null)
 const materialImages = ref([])
 const materialAnalysis = ref(null)
@@ -63,11 +69,13 @@ const materialsAnalyzing = ref(false)
 const materialsConverting = ref(false)
 const classroomContentMode = ref('qa')
 const feedbackSupplement = ref('')
+const useStyleExamplesForDraft = ref(true)
 const feedbackDraftStatus = ref('')
 const hasSavedFeedbackDraft = ref(false)
 const styleExamplePage = ref(1)
 const feedbackStyleExamplePage = ref(1)
 const feedbackSearchForm = reactive(defaultFeedbackSearchRange())
+const eveningFeedbackSearchForm = reactive(defaultMonthlySearchRange())
 const studentHistoryFilter = reactive({ start_date: '', end_date: '' })
 const feedbackPanels = reactive(defaultFeedbackPanels())
 
@@ -82,6 +90,8 @@ const MATERIAL_PDF_TYPE = 'application/pdf'
 const MATERIAL_ACCEPT_TYPES = [...MATERIAL_IMAGE_TYPES, MATERIAL_PDF_TYPE].join(',')
 const MATERIALS_MODAL_VISIBLE_WIDTH = 168
 const MATERIALS_MODAL_VISIBLE_HEIGHT = 96
+const WRITING_REFERENCE_VISIBLE_WIDTH = 132
+const WRITING_REFERENCE_VISIBLE_HEIGHT = 76
 const STYLE_EXAMPLE_PAGE_SIZE = 5
 const MAX_ENABLED_STYLE_EXAMPLES = 5
 const CLASSROOM_CONTENT_MODES = [
@@ -93,35 +103,63 @@ const QA_FIELDS = [
     key: 'lesson',
     formField: 'lesson_summary',
     title: '1. 本节课主要学了什么？',
-    example: '例如：学习了一元一次方程的去括号、移项和合并同类项，重点练了应用题列方程。',
+    placeholder: '写本节课学习、复习或检测的知识点、题型、方法和练习内容',
   },
   {
     key: 'performance',
     formField: 'performance_summary',
     title: '2. 学生课堂表现和掌握情况如何？',
-    example: '例如：听课比较专注，基础计算掌握较好，但应用题读题和等量关系寻找还需要提醒。',
+    placeholder: '写上课状态、练习完成情况、掌握得好的地方和还不熟的知识点',
   },
   {
     key: 'advice',
     formField: 'advice_summary',
     title: '3. 课后建议重点是什么？',
-    example: '例如：建议课后把今天错的应用题重新整理一遍，先标出关键词，再写等量关系。',
+    placeholder: '写学生需要改进、注意或继续巩固的地方，尽量对应课堂问题',
   },
   {
     key: 'homework',
     formField: 'homework_plan',
     title: '4. 作业安排是什么？',
-    example: '例如：完成讲义第 3 页 1-6 题，错题整理到错题本，下节课检查。',
+    placeholder: '严格写本次实际布置的作业，不额外新增内容',
+  },
+]
+const WRITING_REFERENCE_SECTIONS = [
+  {
+    title: '课堂学习内容',
+    guide: '写本节课学习、复习、检测了什么内容。',
+    sample: '本节课复习了不等式和因式分解，涉及不等式运算、不等式组解集、一次函数图像与不等式关系、提公因式法、平方差公式和完全平方公式。',
+  },
+  {
+    title: '课堂表现与知识掌握情况',
+    guide: '写学生本节课上课状态、课堂练习完成情况和知识点掌握情况。',
+    sample: '学生A听课认真，做题专注，比之前更愿意主动思考和提问；基础计算速度有进步，但一次函数图像理解、公式法应用和不等式变号规则还需要巩固。',
+  },
+  {
+    title: '课后建议',
+    guide: '写学生哪里可以改进，哪些地方需要注意和巩固。',
+    sample: '继续巩固基础题型，加强一次函数图像理解，熟悉因式分解公式法应用，做题时一步步计算，避免跳步。',
+  },
+  {
+    title: '作业安排',
+    guide: '严格按照实际布置的作业填写，不新增、不扩写。',
+    sample: '复习本节课讲过的不等式和因式分解内容；预习学校正在学的分式内容；下节课带半期试卷用于分析错题。',
+  },
+  {
+    title: '内容补充',
+    guide: '忘了写、暂时不知道放哪一栏的信息放这里；这是补充事实，不是要求 AI 偏向某个部分。',
+    sample: '下节课计划讲分式；学生需要带半期试卷，课上一起分析错题和丢分点。',
   },
 ]
 
 const authForm = reactive({ email: '', password: '', confirmPassword: '', code: '' })
-const oneStudentForm = reactive({ name: '', grade: '', subject: '', note: '' })
+const oneStudentForm = reactive({ name: '', grade: '', subject: '' })
 const feedbackForm = reactive(newFeedback())
 const editForm = reactive(newFeedback())
-const classForm = reactive({ name: '', note: '' })
+const classForm = reactive({ name: '' })
+const groupClassForm = reactive({ name: '' })
 const bulkForm = reactive({ names_text: '' })
-const eveningStudentForm = reactive({ name: '', grade: '', school: '', note: '' })
+const eveningStudentForm = reactive({ name: '', grade: '', school: '' })
 const monthlyForm = reactive(newMonthlyFeedback())
 const monthlyEditForm = reactive(newMonthlyFeedback())
 const aiSettingsForm = reactive({
@@ -144,6 +182,8 @@ const styleExampleEditForm = reactive({ title: '', content: '', enabled: true })
 const qaAnswers = reactive(defaultQaAnswers())
 const materialsModalFrame = reactive({ left: 160, top: 80, width: 760, height: 680 })
 const materialsModalDrag = reactive({ active: false, startX: 0, startY: 0, startLeft: 0, startTop: 0, startWidth: 0, startHeight: 0, mode: '' })
+const writingReferenceFrame = reactive({ left: 220, top: 110, width: 560, height: 520 })
+const writingReferenceDrag = reactive({ active: false, startX: 0, startY: 0, startLeft: 0, startTop: 0, startWidth: 0, startHeight: 0, mode: '' })
 const settingsPanels = reactive({
   feedback_ai: true,
   vision_ai: false,
@@ -246,6 +286,10 @@ const currentView = computed(() => {
   if (!isAuthed.value) return 'auth'
   if (route.value === '#/settings') return 'settings'
   if (route.value === '#/one-on-one/feedbacks') return 'one-feedback-search'
+  if (route.value === '#/evening/feedbacks') return 'evening-feedback-search'
+  if (route.value === '#/group-classes/feedbacks') return 'group-feedback-search'
+  if (route.value.startsWith('#/group-classes/classes/')) return 'group-class'
+  if (route.value === '#/group-classes') return 'group-classes'
   if (route.value.startsWith('#/evening/classes/')) return 'evening-class'
   if (route.value.startsWith('#/evening/students/')) return 'evening-student'
   if (route.value === '#/evening') return 'evening'
@@ -259,7 +303,9 @@ const filteredStudentFeedbacks = computed(() =>
 const enabledStyleExamples = computed(() => styleExamples.value.filter((example) => example.enabled))
 const enabledStyleExampleCount = computed(() => enabledStyleExamples.value.length)
 const styleGenerationStatus = computed(() =>
-  enabledStyleExampleCount.value
+  enabledStyleExampleCount.value && !useStyleExamplesForDraft.value
+    ? '本次已停用个人风格，将按标准结构生成'
+    : enabledStyleExampleCount.value
     ? `已启用 ${enabledStyleExampleCount.value} / ${MAX_ENABLED_STYLE_EXAMPLES} 条样例，将按个人风格生成`
     : '暂无启用样例，将按标准结构生成'
 )
@@ -279,6 +325,12 @@ const materialsModalStyle = computed(() => ({
   top: `${materialsModalFrame.top}px`,
   width: `${materialsModalFrame.width}px`,
   height: `${materialsModalFrame.height}px`,
+}))
+const writingReferenceStyle = computed(() => ({
+  left: `${writingReferenceFrame.left}px`,
+  top: `${writingReferenceFrame.top}px`,
+  width: `${writingReferenceFrame.width}px`,
+  height: `${writingReferenceFrame.height}px`,
 }))
 
 function newFeedback() {
@@ -321,6 +373,21 @@ function defaultFeedbackSearchRange() {
   return {
     start_date: dateInputValue(start),
     end_date: dateInputValue(end),
+  }
+}
+
+function monthInputValue(date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  return `${year}-${month}`
+}
+
+function defaultMonthlySearchRange() {
+  const end = new Date()
+  const start = new Date(end.getFullYear(), end.getMonth() - 2, 1)
+  return {
+    start_date: monthInputValue(start),
+    end_date: monthInputValue(end),
   }
 }
 
@@ -540,6 +607,7 @@ function resetFeedbackForm() {
   Object.assign(qaAnswers, defaultQaAnswers())
   classroomContentMode.value = 'qa'
   feedbackSupplement.value = ''
+  useStyleExamplesForDraft.value = true
   clearMaterialImages()
   feedbackDraftStatus.value = ''
 }
@@ -598,6 +666,7 @@ function saveFeedbackDraft() {
     content_mode: classroomContentMode.value,
     qa_answers: { ...qaAnswers },
     supplement_summary: feedbackSupplement.value,
+    use_style_examples: useStyleExamplesForDraft.value,
     material_analysis: materialAnalysis.value,
     updated_at: new Date().toISOString(),
   }
@@ -617,6 +686,7 @@ function applyFeedbackDraft(draft) {
   Object.assign(qaAnswers, defaultQaAnswers(), draft.qa_answers || {})
   classroomContentMode.value = draft.content_mode === 'free' ? 'free' : 'qa'
   feedbackSupplement.value = draft.supplement_summary || draft.emphasis_summary || ''
+  useStyleExamplesForDraft.value = draft.use_style_examples !== false
   clearMaterialImages()
   materialAnalysis.value = draft.material_analysis || null
   feedbackDraftStatus.value = '已恢复草稿'
@@ -1006,6 +1076,14 @@ function feedbackSearchQuery() {
   return query ? `/feedbacks?${query}` : '/feedbacks'
 }
 
+function eveningFeedbackSearchQuery() {
+  const params = new URLSearchParams()
+  if (eveningFeedbackSearchForm.start_date) params.set('start_date', eveningFeedbackSearchForm.start_date)
+  if (eveningFeedbackSearchForm.end_date) params.set('end_date', eveningFeedbackSearchForm.end_date)
+  const query = params.toString()
+  return query ? `/evening/monthly-feedbacks?${query}` : '/evening/monthly-feedbacks'
+}
+
 async function loadFeedbackSearchResults() {
   loading.value = true
   try {
@@ -1023,6 +1101,23 @@ async function resetFeedbackSearch() {
   await loadFeedbackSearchResults()
 }
 
+async function loadEveningFeedbackSearchResults() {
+  loading.value = true
+  try {
+    const data = await request(eveningFeedbackSearchQuery())
+    eveningFeedbackSearchResults.value = data.feedbacks
+  } catch (error) {
+    showMessage(error.message)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function resetEveningFeedbackSearch() {
+  Object.assign(eveningFeedbackSearchForm, defaultMonthlySearchRange())
+  await loadEveningFeedbackSearchResults()
+}
+
 function clearStudentHistoryFilter() {
   studentHistoryFilter.start_date = ''
   studentHistoryFilter.end_date = ''
@@ -1032,8 +1127,8 @@ async function createOneStudent() {
   if (!oneStudentForm.name.trim()) return showMessage('请填写学生姓名')
   loading.value = true
   try {
-    await request('/students', { method: 'POST', body: JSON.stringify(oneStudentForm) })
-    Object.assign(oneStudentForm, { name: '', grade: '', subject: '', note: '' })
+    await request('/students', { method: 'POST', body: JSON.stringify({ ...oneStudentForm, note: '' }) })
+    Object.assign(oneStudentForm, { name: '', grade: '', subject: '' })
     await loadOneStudents()
     showMessage('学生已添加')
   } catch (error) {
@@ -1055,7 +1150,11 @@ async function loadOneStudentContext(loadFeedbacks = true) {
 }
 
 function openOneStudentEdit() {
-  Object.assign(oneStudentForm, currentStudent.value)
+  Object.assign(oneStudentForm, {
+    name: currentStudent.value?.name || '',
+    grade: currentStudent.value?.grade || '',
+    subject: currentStudent.value?.subject || '',
+  })
   showOneStudentEditModal.value = true
 }
 
@@ -1064,7 +1163,7 @@ async function saveOneStudentEdit() {
   try {
     const data = await request(`/students/${currentStudent.value.id}`, {
       method: 'PUT',
-      body: JSON.stringify(oneStudentForm),
+      body: JSON.stringify({ ...oneStudentForm, note: '' }),
     })
     currentStudent.value = data.student
     showOneStudentEditModal.value = false
@@ -1140,6 +1239,7 @@ function closeCreateFeedback() {
   if ((hasFeedbackDraft(feedbackForm) || hasQaAnswers() || feedbackSupplement.value.trim()) && !window.confirm('这条反馈还没有保存，确定关闭吗？')) return
   showFeedbackStyleModal.value = false
   showMaterialsModal.value = false
+  showWritingReference.value = false
   showCreateModal.value = false
   resetFeedbackForm()
 }
@@ -1404,6 +1504,53 @@ function stopMaterialsModalMove() {
   window.removeEventListener('pointermove', moveMaterialsModal)
 }
 
+function clampWritingReferenceFrame() {
+  const minLeft = Math.min(8, WRITING_REFERENCE_VISIBLE_WIDTH - writingReferenceFrame.width)
+  const maxLeft = Math.max(8, window.innerWidth - WRITING_REFERENCE_VISIBLE_WIDTH)
+  const minTop = Math.min(8, WRITING_REFERENCE_VISIBLE_HEIGHT - writingReferenceFrame.height)
+  const maxTop = Math.max(8, window.innerHeight - WRITING_REFERENCE_VISIBLE_HEIGHT)
+  writingReferenceFrame.left = Math.min(Math.max(minLeft, writingReferenceFrame.left), maxLeft)
+  writingReferenceFrame.top = Math.min(Math.max(minTop, writingReferenceFrame.top), maxTop)
+}
+
+function toggleWritingReference() {
+  showWritingReference.value = !showWritingReference.value
+  if (showWritingReference.value) clampWritingReferenceFrame()
+}
+
+function startWritingReferenceMove(event, mode) {
+  if (event.button !== undefined && event.button !== 0) return
+  writingReferenceDrag.active = true
+  writingReferenceDrag.mode = mode
+  writingReferenceDrag.startX = event.clientX
+  writingReferenceDrag.startY = event.clientY
+  writingReferenceDrag.startLeft = writingReferenceFrame.left
+  writingReferenceDrag.startTop = writingReferenceFrame.top
+  writingReferenceDrag.startWidth = writingReferenceFrame.width
+  writingReferenceDrag.startHeight = writingReferenceFrame.height
+  window.addEventListener('pointermove', moveWritingReference)
+  window.addEventListener('pointerup', stopWritingReferenceMove, { once: true })
+}
+
+function moveWritingReference(event) {
+  if (!writingReferenceDrag.active) return
+  const deltaX = event.clientX - writingReferenceDrag.startX
+  const deltaY = event.clientY - writingReferenceDrag.startY
+  if (writingReferenceDrag.mode === 'move') {
+    writingReferenceFrame.left = writingReferenceDrag.startLeft + deltaX
+    writingReferenceFrame.top = writingReferenceDrag.startTop + deltaY
+  } else {
+    writingReferenceFrame.width = Math.min(window.innerWidth - 16, Math.max(360, writingReferenceDrag.startWidth + deltaX))
+    writingReferenceFrame.height = Math.min(window.innerHeight - 16, Math.max(320, writingReferenceDrag.startHeight + deltaY))
+  }
+  clampWritingReferenceFrame()
+}
+
+function stopWritingReferenceMove() {
+  writingReferenceDrag.active = false
+  window.removeEventListener('pointermove', moveWritingReference)
+}
+
 async function analyzeMaterialImages() {
   if (!materialImages.value.length) return showMessage('请先选择课堂资料')
   materialsAnalyzing.value = true
@@ -1472,6 +1619,7 @@ async function generateDraft() {
         lesson_title: titleForGenerate(feedbackForm.lesson_title, feedbackForm.lesson_time),
         ...contentPayload,
         supplement_summary: feedbackSupplement.value,
+        use_style_examples: useStyleExamplesForDraft.value,
       }),
     })
     feedbackForm.ai_draft = data.draft
@@ -1647,7 +1795,6 @@ async function loadEveningClasses() {
 function openClassModal(cls = null) {
   editingClass.value = cls
   classForm.name = cls?.name || ''
-  classForm.note = cls?.note || ''
   showClassModal.value = true
 }
 
@@ -1684,6 +1831,65 @@ async function deleteClass() {
     showClassModal.value = false
     go('#/evening')
     showMessage('班级已删除')
+  } catch (error) {
+    showMessage(error.message)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loadGroupClasses() {
+  const data = await request('/group-classes')
+  groupClasses.value = data.classes
+}
+
+async function loadGroupClassContext() {
+  const id = route.value.split('/')[3]
+  if (!id) return
+  const data = await request(`/group-classes/${id}`)
+  currentGroupClass.value = data.class
+}
+
+function openGroupClassModal(cls = null) {
+  editingGroupClass.value = cls
+  groupClassForm.name = cls?.name || ''
+  showGroupClassModal.value = true
+}
+
+async function saveGroupClass() {
+  if (!groupClassForm.name.trim()) return showMessage('请填写班级名称')
+  loading.value = true
+  try {
+    if (editingGroupClass.value) {
+      await request(`/group-classes/${editingGroupClass.value.id}`, { method: 'PUT', body: JSON.stringify(groupClassForm) })
+    } else {
+      await request('/group-classes', { method: 'POST', body: JSON.stringify(groupClassForm) })
+    }
+    showGroupClassModal.value = false
+    await loadGroupClasses()
+    if (currentGroupClass.value) await loadGroupClassContext()
+    Object.assign(groupClassForm, { name: '' })
+    showMessage('班课班级已保存')
+  } catch (error) {
+    showMessage(error.message)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function createGroupClassFromList() {
+  editingGroupClass.value = null
+  await saveGroupClass()
+}
+
+async function deleteGroupClass() {
+  if (!window.confirm('确定删除该班课班级吗？')) return
+  loading.value = true
+  try {
+    await request(`/group-classes/${currentGroupClass.value.id}`, { method: 'DELETE' })
+    showGroupClassModal.value = false
+    go('#/group-classes')
+    showMessage('班课班级已删除')
   } catch (error) {
     showMessage(error.message)
   } finally {
@@ -1731,7 +1937,11 @@ async function loadEveningStudentContext() {
 }
 
 function openEveningStudentEdit() {
-  Object.assign(eveningStudentForm, currentEveningStudent.value)
+  Object.assign(eveningStudentForm, {
+    name: currentEveningStudent.value?.name || '',
+    grade: currentEveningStudent.value?.grade || '',
+    school: currentEveningStudent.value?.school || '',
+  })
   showEveningStudentModal.value = true
 }
 
@@ -1858,11 +2068,15 @@ async function handleRoute() {
   route.value = window.location.hash || '#/one-on-one'
   detailFeedback.value = null
   eveningDetail.value = null
+  currentGroupClass.value = null
   if (!isAuthed.value) return
   try {
     if (currentView.value === 'one-list') await loadOneStudents()
     if (currentView.value === 'one-feedback-search') await loadFeedbackSearchResults()
     if (currentView.value === 'one-student' || currentView.value === 'one-history') await loadOneStudentContext(true)
+    if (currentView.value === 'evening-feedback-search') await loadEveningFeedbackSearchResults()
+    if (currentView.value === 'group-classes') await loadGroupClasses()
+    if (currentView.value === 'group-class') await loadGroupClassContext()
     if (currentView.value === 'evening') await loadEveningClasses()
     if (currentView.value === 'evening-class') await loadEveningClassContext()
     if (currentView.value === 'evening-student') await loadEveningStudentContext()
@@ -1873,7 +2087,9 @@ async function handleRoute() {
     }
   } catch (error) {
     showMessage(error.message)
-    if (currentView.value.toString().startsWith('evening')) go('#/evening')
+    if (currentView.value === 'group-feedback-search') go('#/group-classes')
+    else if (currentView.value.toString().startsWith('group')) go('#/group-classes')
+    else if (currentView.value.toString().startsWith('evening')) go('#/evening')
     else go('#/one-on-one')
   }
 }
@@ -1925,6 +2141,7 @@ onMounted(async () => {
         <nav class="module-nav" aria-label="业务导航">
           <button class="nav-button" :class="{ active: currentView.startsWith('one') }" @click="go('#/one-on-one')">一对一</button>
           <button class="nav-button" :class="{ active: currentView.startsWith('evening') }" @click="go('#/evening')">晚辅</button>
+          <button class="nav-button" :class="{ active: currentView.startsWith('group') }" @click="go('#/group-classes')">班课</button>
         </nav>
         <img class="sidebar-art" :src="sidebarCampusArt" alt="" aria-hidden="true" />
         <div class="account-area" @click.stop>
@@ -1944,31 +2161,37 @@ onMounted(async () => {
         <header class="top-banner">
           <img class="banner-art" :src="dashboardBannerArt" alt="" aria-hidden="true" />
           <div>
-            <p class="eyebrow">{{ currentView === 'settings' ? '设置' : currentView.startsWith('evening') ? '晚辅' : '一对一' }}</p>
+            <p class="eyebrow">{{ currentView === 'settings' ? '设置' : currentView.startsWith('group') ? '班课' : currentView.startsWith('evening') ? '晚辅' : '一对一' }}</p>
             <h2 v-if="currentView === 'one-list'">一对一学生</h2>
             <h2 v-else-if="currentView === 'one-feedback-search'">反馈查询</h2>
+            <h2 v-else-if="currentView === 'evening-feedback-search'">晚辅反馈查询</h2>
+            <h2 v-else-if="currentView === 'group-feedback-search'">班课反馈查询</h2>
             <h2 v-else-if="currentView === 'settings'">AI 模型配置</h2>
+            <h2 v-else-if="currentView === 'group-classes'">班课班级</h2>
+            <h2 v-else-if="currentView === 'group-class'">{{ currentGroupClass?.name || '班课班级' }}</h2>
             <h2 v-else-if="currentView === 'evening'">晚辅班级</h2>
             <h2 v-else-if="currentView === 'evening-class'">{{ currentClass?.name || '晚辅班级' }}</h2>
             <h2 v-else-if="currentView === 'evening-student'">{{ currentEveningStudent?.name || '晚辅学生' }}</h2>
             <h2 v-else>{{ currentStudent?.name || '一对一学生' }}</h2>
           </div>
           <button v-if="currentView === 'one-student' || currentView === 'one-history' || currentView === 'one-feedback-search'" class="ghost-btn" @click="go('#/one-on-one')">返回一对一</button>
-          <button v-if="currentView === 'evening-class'" class="ghost-btn" @click="go('#/evening')">返回晚辅</button>
+          <button v-if="currentView === 'group-class' || currentView === 'group-feedback-search'" class="ghost-btn" @click="go('#/group-classes')">返回班课</button>
+          <button v-if="currentView === 'evening-class' || currentView === 'evening-feedback-search'" class="ghost-btn" @click="go('#/evening')">返回晚辅</button>
           <button v-if="currentView === 'evening-student'" class="ghost-btn" @click="go(`#/evening/classes/${currentEveningStudent?.class_id}`)">返回班级</button>
           <button v-if="currentView === 'settings'" class="ghost-btn" type="button" @click="openSettingsGuide">设置引导</button>
         </header>
 
-        <section v-if="currentView === 'one-list'" class="dashboard-grid">
-          <form class="paper-card student-form" @submit.prevent="createOneStudent">
-            <h3>添加一对一学生</h3>
-            <input v-model="oneStudentForm.name" placeholder="学生姓名" />
-            <input v-model="oneStudentForm.grade" placeholder="年级，例如 初二" />
-            <input v-model="oneStudentForm.subject" placeholder="科目，例如 数学" />
-            <textarea v-model="oneStudentForm.note" class="auto-textarea" placeholder="备注" @input="autoResize"></textarea>
-            <button class="primary-btn" :disabled="loading">添加到一对一</button>
-            <button type="button" class="ghost-btn" @click="go('#/one-on-one/feedbacks')">反馈查询</button>
-          </form>
+        <section v-if="currentView === 'one-list'" class="dashboard-grid module-home-grid">
+          <div class="module-tool-column">
+            <form class="paper-card student-form" @submit.prevent="createOneStudent">
+              <h3>添加一对一学生</h3>
+              <input v-model="oneStudentForm.name" placeholder="学生姓名" />
+              <input v-model="oneStudentForm.grade" placeholder="年级，例如 初二" />
+              <input v-model="oneStudentForm.subject" placeholder="科目，例如 数学" />
+              <button class="primary-btn" :disabled="loading">添加到一对一</button>
+            </form>
+            <button class="side-tool-card" type="button" @click="go('#/one-on-one/feedbacks')"><strong>反馈查询</strong><small>按时间查看一对一反馈</small><span>查看 →</span></button>
+          </div>
           <div class="student-list">
             <article v-for="student in oneStudents" :key="student.id" class="student-card" @click="go(`#/one-on-one/students/${student.id}`)">
               <img class="card-sticker" :src="oneOnOneStickerArt" alt="" aria-hidden="true" />
@@ -2012,11 +2235,40 @@ onMounted(async () => {
           </div>
         </section>
 
+        <section v-if="currentView === 'evening-feedback-search'" class="history-page">
+          <form class="paper-card query-panel" @submit.prevent="loadEveningFeedbackSearchResults">
+            <div>
+              <p class="eyebrow">Evening Search</p>
+              <h3>按时间查找晚辅反馈</h3>
+              <small>{{ searchRangeLabel(eveningFeedbackSearchForm.start_date, eveningFeedbackSearchForm.end_date) }} · {{ eveningFeedbackSearchResults.length }} 条结果</small>
+            </div>
+            <label>开始月份<input v-model="eveningFeedbackSearchForm.start_date" type="month" /></label>
+            <label>结束月份<input v-model="eveningFeedbackSearchForm.end_date" type="month" /></label>
+            <div class="button-row">
+              <button class="primary-btn" :disabled="loading">查询</button>
+              <button type="button" class="ghost-btn" :disabled="loading" @click="resetEveningFeedbackSearch">最近 3 个月</button>
+              <button type="button" class="ghost-btn" :disabled="loading" @click="eveningFeedbackSearchForm.start_date = ''; eveningFeedbackSearchForm.end_date = ''; loadEveningFeedbackSearchResults()">清空</button>
+            </div>
+          </form>
+          <div class="history-list">
+            <button v-for="feedback in eveningFeedbackSearchResults" :key="feedback.id" class="history-card" type="button" @click="openEveningDetail(feedback)">
+              <strong>{{ feedback.student_name }} · {{ feedback.feedback_month }}</strong>
+              <span>{{ feedback.class_name }} · {{ feedback.grade || '未填年级' }} · {{ feedback.school || '未填学校' }}</span>
+              <small>{{ shortText(feedback.homework_summary, 86) }}</small>
+              <small>{{ shortText(feedback.final_feedback, 130) }}</small>
+            </button>
+            <div v-if="!eveningFeedbackSearchResults.length" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>这个时间段暂无晚辅反馈。</span></div>
+          </div>
+        </section>
+
+        <section v-if="currentView === 'group-feedback-search'" class="history-page">
+          <div class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>班课反馈功能后续补充，当前暂无可查询反馈。</span></div>
+        </section>
+
         <section v-if="currentView === 'one-student' && currentStudent" class="student-home">
           <div class="paper-card profile-card">
             <h3>{{ currentStudent.name }}</h3>
             <p>{{ currentStudent.grade || '未填写年级' }} · {{ currentStudent.subject || '未填写科目' }}</p>
-            <small>{{ currentStudent.note || '暂无备注' }}</small>
             <div class="button-row"><button class="ghost-btn" @click="openOneStudentEdit">编辑学生信息</button></div>
           </div>
           <div class="action-grid">
@@ -2055,19 +2307,48 @@ onMounted(async () => {
           </div>
         </section>
 
-        <section v-if="currentView === 'evening'" class="dashboard-grid">
-          <form class="paper-card student-form" @submit.prevent="createClassFromList">
-            <h3>新建晚辅班级</h3>
-            <input v-model="classForm.name" placeholder="班级名称，例如 周一晚辅班" />
-            <textarea v-model="classForm.note" class="auto-textarea" placeholder="备注" @input="autoResize"></textarea>
-            <button class="primary-btn" :disabled="loading">新建班级</button>
-          </form>
+        <section v-if="currentView === 'group-classes'" class="dashboard-grid module-home-grid">
+          <div class="module-tool-column">
+            <form class="paper-card student-form" @submit.prevent="createGroupClassFromList">
+              <h3>新建班课班级</h3>
+              <input v-model="groupClassForm.name" placeholder="班级名称，例如 初三数学" />
+              <button class="primary-btn" :disabled="loading">新建班级</button>
+            </form>
+            <button class="side-tool-card" type="button" @click="go('#/group-classes/feedbacks')"><strong>反馈查询</strong><small>班课反馈功能后续补充</small><span>查看 →</span></button>
+          </div>
+          <div class="student-list">
+            <article v-for="cls in groupClasses" :key="cls.id" class="student-card" @click="go(`#/group-classes/classes/${cls.id}`)">
+              <img class="card-sticker" :src="eveningStickerArt" alt="" aria-hidden="true" />
+              <span class="avatar">课</span>
+              <h3>{{ cls.name }}</h3>
+              <small>班课班级</small>
+            </article>
+            <div v-if="!groupClasses.length" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>还没有班课班级。</span></div>
+          </div>
+        </section>
+
+        <section v-if="currentView === 'group-class' && currentGroupClass" class="student-home">
+          <div class="paper-card profile-card">
+            <h3>{{ currentGroupClass.name }}</h3><small>班课班级</small>
+            <div class="button-row"><button class="ghost-btn" @click="openGroupClassModal(currentGroupClass)">编辑班级</button><button class="danger-btn" @click="deleteGroupClass">删除班级</button></div>
+          </div>
+          <div class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>班课学生和反馈功能后续补充。</span></div>
+        </section>
+
+        <section v-if="currentView === 'evening'" class="dashboard-grid module-home-grid">
+          <div class="module-tool-column">
+            <form class="paper-card student-form" @submit.prevent="createClassFromList">
+              <h3>新建晚辅班级</h3>
+              <input v-model="classForm.name" placeholder="班级名称，例如 初三晚辅" />
+              <button class="primary-btn" :disabled="loading">新建班级</button>
+            </form>
+            <button class="side-tool-card" type="button" @click="go('#/evening/feedbacks')"><strong>反馈查询</strong><small>按时间查看晚辅月度反馈</small><span>查看 →</span></button>
+          </div>
           <div class="student-list">
             <article v-for="cls in eveningClasses" :key="cls.id" class="student-card" @click="go(`#/evening/classes/${cls.id}`)">
               <img class="card-sticker" :src="eveningStickerArt" alt="" aria-hidden="true" />
               <span class="avatar">班</span>
               <h3>{{ cls.name }}</h3>
-              <p>{{ cls.note || '暂无备注' }}</p>
               <small>{{ cls.student_count }} 名学生</small>
             </article>
             <div v-if="!eveningClasses.length" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>还没有晚辅班级。</span></div>
@@ -2076,7 +2357,7 @@ onMounted(async () => {
 
         <section v-if="currentView === 'evening-class' && currentClass" class="student-home">
           <div class="paper-card profile-card">
-            <h3>{{ currentClass.name }}</h3><small>{{ currentClass.note || '暂无备注' }}</small>
+            <h3>{{ currentClass.name }}</h3><small>{{ eveningStudents.length }} 名学生</small>
             <div class="button-row"><button class="ghost-btn" @click="openClassModal(currentClass)">编辑班级</button><button class="danger-btn" @click="deleteClass">删除班级</button></div>
           </div>
           <div class="button-row"><button class="primary-btn" @click="showBulkModal = true; resizeAllTextareas()">批量录入学生</button></div>
@@ -2092,7 +2373,7 @@ onMounted(async () => {
 
         <section v-if="currentView === 'evening-student' && currentEveningStudent" class="history-page">
           <div class="paper-card profile-card">
-            <h3>{{ currentEveningStudent.name }}</h3><p>{{ currentEveningStudent.grade || '未填年级' }} · {{ currentEveningStudent.school || '未填学校' }}</p><small>{{ currentEveningStudent.note || '暂无备注' }}</small>
+            <h3>{{ currentEveningStudent.name }}</h3><p>{{ currentEveningStudent.grade || '未填年级' }} · {{ currentEveningStudent.school || '未填学校' }}</p>
             <div class="button-row"><button class="ghost-btn" @click="openEveningStudentEdit">编辑学生信息</button><button class="primary-btn" @click="openMonthlyModal">新增月度反馈</button></div>
           </div>
           <div class="history-list">
@@ -2396,17 +2677,24 @@ onMounted(async () => {
             <strong>个人风格</strong>
             <small>{{ styleGenerationStatus }}</small>
           </div>
-          <button type="button" class="ghost-btn" :disabled="loading" @click="openFeedbackStyleModal">{{ styleExamples.length ? '管理个人风格' : '个人风格' }}</button>
+          <div class="button-row">
+            <button v-if="enabledStyleExampleCount" type="button" class="ghost-btn" :disabled="loading" @click="useStyleExamplesForDraft = !useStyleExamplesForDraft; saveFeedbackDraft()">{{ useStyleExamplesForDraft ? '本次不用个人风格' : '使用个人风格' }}</button>
+            <button type="button" class="ghost-btn" :disabled="loading" @click="openFeedbackStyleModal">{{ styleExamples.length ? '管理个人风格' : '个人风格' }}</button>
+          </div>
         </section>
         <section class="feedback-style-entry materials-entry">
           <div>
             <strong>课堂资料</strong>
             <small>{{ materialStatus }}</small>
+            <small>可选。只有需要从图片/PDF提取课堂内容时再用；会调用能看图片的 AI，消耗更多额度/次数。</small>
           </div>
           <button type="button" class="ghost-btn" :disabled="loading" @click="openMaterialsModal">导入课堂资料</button>
         </section>
         <section class="feedback-panel classroom-content-panel" :class="{ collapsed: !feedbackPanels.content }">
-          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('content')"><strong>课堂内容填写</strong><span>{{ feedbackPanels.content ? '收起' : '展开' }}</span></button>
+          <div class="feedback-panel-header feedback-panel-header-actions">
+            <button class="feedback-panel-toggle" type="button" @click="toggleFeedbackPanel('content')"><strong>课堂内容填写</strong><span>{{ feedbackPanels.content ? '收起' : '展开' }}</span></button>
+            <button type="button" class="ghost-btn reference-toggle-btn" @click="toggleWritingReference">{{ showWritingReference ? '收起参考' : '填写参考' }}</button>
+          </div>
           <div v-show="feedbackPanels.content" class="feedback-panel-body">
             <div class="mode-switch" role="tablist" aria-label="课堂内容填写模式">
               <button v-for="mode in CLASSROOM_CONTENT_MODES" :key="mode.value" type="button" :class="{ active: classroomContentMode === mode.value }" @click="setClassroomContentMode(mode.value)">{{ mode.label }}</button>
@@ -2415,8 +2703,12 @@ onMounted(async () => {
             <div v-if="classroomContentMode === 'qa'" class="qa-mode-panel">
               <label v-for="field in QA_FIELDS" :key="field.key" class="qa-question">
                 <span>{{ field.title }}</span>
-                <small>{{ field.example }}</small>
-                <textarea v-model="qaAnswers[field.key]" class="auto-textarea" placeholder="按课堂真实情况填写，越具体越有助于生成贴合课堂的反馈" @input="autoResize"></textarea>
+                <textarea v-model="qaAnswers[field.key]" class="auto-textarea" :placeholder="field.placeholder" @input="autoResize"></textarea>
+              </label>
+              <label class="qa-question">
+                <span>5. 还有什么想补充的吗？</span>
+                <small>可选。忘了写、暂时不知道放哪一栏的信息可以填在这里；没有可不填。</small>
+                <textarea v-model="feedbackSupplement" class="auto-textarea" placeholder="可选。写漏掉的事实、下节课安排、需带资料等；没有可不填。" @input="autoResize"></textarea>
               </label>
               <div class="button-row classroom-generate-row">
                 <button type="button" class="ghost-btn" :disabled="loading" @click="convertQaToFree">转为自由编辑</button>
@@ -2425,11 +2717,11 @@ onMounted(async () => {
             </div>
 
             <div v-else class="free-mode-panel">
-              <label>1. 课堂学习内容<textarea v-model="feedbackForm.lesson_summary" class="auto-textarea" placeholder="写本节课学习的知识点、题型、方法，方便 AI 整理成复习清单" @input="autoResize"></textarea></label>
-              <label>2. 课堂表现与知识掌握情况<textarea v-model="feedbackForm.performance_summary" class="auto-textarea" placeholder="写学生状态、掌握得好的地方、需要关注的问题" @input="autoResize"></textarea></label>
-              <label>3. 课后建议<textarea v-model="feedbackForm.advice_summary" class="auto-textarea" placeholder="写你想给学生/家长的具体建议，AI 会润色成可执行方案" @input="autoResize"></textarea></label>
-              <label>4. 作业安排<textarea v-model="feedbackForm.homework_plan" class="auto-textarea" placeholder="严格填写本次需要布置给学生的作业，AI 只润色不新增" @input="autoResize"></textarea></label>
-              <label>内容补充<textarea v-model="feedbackSupplement" class="auto-textarea" placeholder="可选。填写不适合放入前四栏、但希望 AI 参考并写进反馈的补充信息" @input="autoResize"></textarea></label>
+              <label>1. 课堂学习内容<textarea v-model="feedbackForm.lesson_summary" class="auto-textarea" placeholder="写本节课学习、复习或检测的知识点、题型、方法和练习内容" @input="autoResize"></textarea></label>
+              <label>2. 课堂表现与知识掌握情况<textarea v-model="feedbackForm.performance_summary" class="auto-textarea" placeholder="写上课状态、练习完成情况、掌握得好的地方和还不熟的知识点" @input="autoResize"></textarea></label>
+              <label>3. 课后建议<textarea v-model="feedbackForm.advice_summary" class="auto-textarea" placeholder="写学生需要改进、注意或继续巩固的地方，尽量对应课堂问题" @input="autoResize"></textarea></label>
+              <label>4. 作业安排<textarea v-model="feedbackForm.homework_plan" class="auto-textarea" placeholder="严格写本次实际布置的作业，不额外新增内容" @input="autoResize"></textarea></label>
+              <label>内容补充<textarea v-model="feedbackSupplement" class="auto-textarea" placeholder="可选。写漏掉的事实、下节课安排、需带资料等；AI 会归类合并，不是强调指令" @input="autoResize"></textarea></label>
               <div class="button-row classroom-generate-row">
                 <button type="button" class="primary-btn" :disabled="loading" @click="generateDraft">生成 AI 初稿</button>
               </div>
@@ -2450,6 +2742,26 @@ onMounted(async () => {
         <div class="button-row feedback-action-row"><button type="button" class="ghost-btn" :disabled="loading" @click="copyFeedbackText(feedbackForm.final_feedback)">复制最终反馈</button><button class="primary-btn" :disabled="loading">保存最终反馈</button></div>
 	      </form>
 
+      <div v-if="showWritingReference" class="nested-modal-mask transparent-mask writing-reference-mask">
+        <aside class="paper-card modal-panel writing-reference-floating-modal" :style="writingReferenceStyle" aria-label="课堂内容填写参考">
+          <div class="modal-title draggable-title" @pointerdown="startWritingReferenceMove($event, 'move')">
+            <div>
+              <h3>参考示例</h3>
+              <small>可拖动、调整大小，也可以放到边角对照填写。</small>
+            </div>
+            <button type="button" class="icon-btn" @pointerdown.stop @click="showWritingReference = false">×</button>
+          </div>
+          <div class="writing-reference-body">
+            <section v-for="item in WRITING_REFERENCE_SECTIONS" :key="item.title" class="writing-reference-section">
+              <strong>{{ item.title }}</strong>
+              <p>填写什么：{{ item.guide }}</p>
+              <span>{{ item.sample }}</span>
+            </section>
+          </div>
+          <button class="resize-handle" type="button" aria-label="调整参考示例浮窗大小" @pointerdown="startWritingReferenceMove($event, 'resize')"></button>
+        </aside>
+      </div>
+
       <div v-if="showMaterialsModal" class="nested-modal-mask transparent-mask">
         <article class="paper-card modal-panel materials-floating-modal" :style="materialsModalStyle">
           <div class="modal-title draggable-title" @pointerdown="startMaterialsModalMove($event, 'move')">
@@ -2469,6 +2781,7 @@ onMounted(async () => {
 
           <div class="materials-modal-body">
             <p class="materials-guide">上传课堂照片、试卷截图或 PDF 后，可以识别图片里的知识点、题型和易错点，并把提炼结果填入“课堂学习内容”，辅助后续生成课后反馈。浮窗可以拖到网页边缘半隐藏，方便一边对照资料一边填写。</p>
+            <p class="settings-hint">这是可选功能。只有需要 AI 帮你看图片或 PDF 时再用；识别资料会消耗能看图片的模型额度，通常比普通文字生成消耗更多。</p>
 
             <div v-if="materialImages.length" class="material-preview-grid">
               <article v-for="(image, index) in materialImages" :key="image.id" class="material-preview-item">
@@ -2601,7 +2914,7 @@ onMounted(async () => {
     <div v-if="showOneStudentEditModal" class="modal-mask">
       <form class="paper-card modal-panel feedback-editor" @submit.prevent="saveOneStudentEdit">
         <div class="modal-title"><h3>编辑一对一学生</h3><button type="button" class="icon-btn" @click="showOneStudentEditModal = false">×</button></div>
-        <input v-model="oneStudentForm.name" placeholder="学生姓名" /><input v-model="oneStudentForm.grade" placeholder="年级" /><input v-model="oneStudentForm.subject" placeholder="科目" /><textarea v-model="oneStudentForm.note" class="auto-textarea" placeholder="备注" @input="autoResize"></textarea>
+        <input v-model="oneStudentForm.name" placeholder="学生姓名" /><input v-model="oneStudentForm.grade" placeholder="年级" /><input v-model="oneStudentForm.subject" placeholder="科目" />
         <div class="button-row danger-row"><button class="primary-btn">保存学生信息</button><button type="button" class="danger-btn" @click="deleteOneStudent">删除学生</button></div>
       </form>
     </div>
@@ -2609,7 +2922,15 @@ onMounted(async () => {
     <div v-if="showClassModal" class="modal-mask">
       <form class="paper-card modal-panel feedback-editor" @submit.prevent="saveClass">
         <div class="modal-title"><h3>{{ editingClass ? '编辑班级' : '新建班级' }}</h3><button type="button" class="icon-btn" @click="showClassModal = false">×</button></div>
-        <input v-model="classForm.name" placeholder="班级名称" /><textarea v-model="classForm.note" class="auto-textarea" placeholder="备注" @input="autoResize"></textarea>
+        <input v-model="classForm.name" placeholder="班级名称，例如 初三晚辅" />
+        <button class="primary-btn">保存班级</button>
+      </form>
+    </div>
+
+    <div v-if="showGroupClassModal" class="modal-mask">
+      <form class="paper-card modal-panel feedback-editor" @submit.prevent="saveGroupClass">
+        <div class="modal-title"><h3>{{ editingGroupClass ? '编辑班课班级' : '新建班课班级' }}</h3><button type="button" class="icon-btn" @click="showGroupClassModal = false">×</button></div>
+        <input v-model="groupClassForm.name" placeholder="班级名称，例如 初三数学" />
         <button class="primary-btn">保存班级</button>
       </form>
     </div>
@@ -2625,7 +2946,7 @@ onMounted(async () => {
     <div v-if="showEveningStudentModal" class="modal-mask">
       <form class="paper-card modal-panel feedback-editor" @submit.prevent="saveEveningStudentEdit">
         <div class="modal-title"><h3>编辑晚辅学生</h3><button type="button" class="icon-btn" @click="showEveningStudentModal = false">×</button></div>
-        <input v-model="eveningStudentForm.name" placeholder="姓名" /><input v-model="eveningStudentForm.grade" placeholder="年级" /><input v-model="eveningStudentForm.school" placeholder="学校" /><textarea v-model="eveningStudentForm.note" class="auto-textarea" placeholder="备注" @input="autoResize"></textarea>
+        <input v-model="eveningStudentForm.name" placeholder="姓名" /><input v-model="eveningStudentForm.grade" placeholder="年级" /><input v-model="eveningStudentForm.school" placeholder="学校" />
         <div class="button-row danger-row"><button class="primary-btn">保存学生信息</button><button type="button" class="danger-btn" @click="deleteEveningStudent">删除学生</button></div>
       </form>
     </div>

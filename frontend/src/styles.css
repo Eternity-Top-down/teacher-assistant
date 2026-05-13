@@ -398,6 +398,12 @@ select:focus {
   gap: 24px;
 }
 
+.module-tool-column {
+  display: grid;
+  align-self: start;
+  gap: 14px;
+}
+
 .student-form {
   display: grid;
   gap: 12px;
@@ -405,6 +411,41 @@ select:focus {
   padding: 24px;
   border-color: var(--green);
   transform: rotate(-0.6deg);
+}
+
+.side-tool-card {
+  display: grid;
+  gap: 6px;
+  min-height: 86px;
+  padding: 16px;
+  border: 2px solid rgba(63, 147, 222, 0.42);
+  border-radius: 14px;
+  background: rgba(235, 247, 255, 0.72);
+  box-shadow: 2px 3px 0 rgba(35, 54, 83, 0.12);
+  color: var(--ink);
+  text-align: left;
+}
+
+.side-tool-card strong {
+  color: #1f5f9b;
+}
+
+.side-tool-card small {
+  color: var(--muted);
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.side-tool-card span {
+  color: #2f7abd;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.side-tool-card:hover,
+.side-tool-card:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 3px 4px 0 rgba(35, 54, 83, 0.16);
 }
 
 .student-list {
@@ -1954,6 +1995,31 @@ body::before {
   font-weight: 900;
 }
 
+.feedback-panel-header-actions {
+  padding: 0;
+}
+
+.feedback-panel-toggle {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 46px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
+  text-align: left;
+}
+
+.reference-toggle-btn {
+  flex: 0 0 auto;
+}
+
 .feedback-panel-body {
   display: grid;
   gap: 12px;
@@ -1961,6 +2027,65 @@ body::before {
 
 .classroom-content-panel {
   border-color: rgba(63, 147, 222, 0.44);
+}
+
+.writing-reference-floating-modal {
+  position: fixed;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  min-width: 360px;
+  min-height: 320px;
+  max-width: calc(100vw - 12px);
+  max-height: calc(100vh - 12px);
+  overflow: hidden;
+  padding: 20px 20px 16px;
+  border-color: rgba(47, 122, 189, 0.54);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(235, 247, 255, 0.88)),
+    repeating-linear-gradient(-10deg, rgba(47, 122, 189, 0.04) 0 8px, transparent 8px 18px);
+  resize: none;
+}
+
+.writing-reference-floating-modal .modal-title h3 {
+  color: #1f5f9b;
+}
+
+.writing-reference-floating-modal .resize-handle {
+  border-right-color: rgba(47, 122, 189, 0.62);
+  border-bottom-color: rgba(47, 122, 189, 0.62);
+}
+
+.writing-reference-body {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.writing-reference-section {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 0 10px;
+  border-bottom: 1px dashed rgba(47, 122, 189, 0.28);
+}
+
+.writing-reference-section strong {
+  color: var(--ink);
+}
+
+.writing-reference-section p,
+.writing-reference-section span {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+  font-weight: 700;
+}
+
+.writing-reference-section span {
+  color: #38536b;
 }
 
 .mode-switch {
@@ -2495,6 +2620,20 @@ body::before {
 
   .settings-accordion-header strong {
     font-size: 21px;
+  }
+
+  .feedback-panel-header-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .reference-toggle-btn {
+    width: 100%;
+  }
+
+  .writing-reference-floating-modal {
+    min-width: min(360px, calc(100vw - 12px));
+    min-height: 300px;
   }
 
   .onboarding-panel,

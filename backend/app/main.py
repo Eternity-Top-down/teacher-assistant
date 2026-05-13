@@ -38,6 +38,8 @@ from .schemas import (
     FeedbackCreate,
     FeedbackGenerateRequest,
     FeedbackUpdate,
+    GroupClassCreate,
+    GroupClassUpdate,
     LoginRequest,
     MaterialsAnalyzeRequest,
     MaterialsAnalyzeResponse,
@@ -101,6 +103,17 @@ def require_evening_class(class_id: int, teacher_id: int) -> dict:
         ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="晚辅班级不存在")
+    return dict(row)
+
+
+def require_group_class(class_id: int, teacher_id: int) -> dict:
+    with get_db() as db:
+        row = db.execute(
+            "SELECT * FROM group_classes WHERE id = ? AND teacher_id = ?",
+            (class_id, teacher_id),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="班课班级不存在")
     return dict(row)
 
 
@@ -592,7 +605,7 @@ async def create_ai_draft(student_id: int, payload: FeedbackGenerateRequest, tea
             advice_summary=payload.advice_summary,
             homework_plan=payload.homework_plan,
             supplement_summary=payload.supplement_summary,
-            style_examples=list_enabled_style_examples(teacher["id"]),
+            style_examples=list_enabled_style_examples(teacher["id"]) if payload.use_style_examples else [],
             ai_config=ai_config,
         )
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
@@ -757,10 +770,10 @@ def create_evening_class(payload: EveningClassCreate, teacher: dict = CurrentTea
     with get_db() as db:
         cursor = db.execute(
             """
-            INSERT INTO evening_classes (teacher_id, name, note, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO evening_classes (teacher_id, name, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
             """,
-            (teacher["id"], payload.name, payload.note, timestamp, timestamp),
+            (teacher["id"], payload.name, timestamp, timestamp),
         )
         row = db.execute("SELECT * FROM evening_classes WHERE id = ?", (cursor.lastrowid,)).fetchone()
     return {"class": dict(row)}
@@ -776,8 +789,8 @@ def update_evening_class(class_id: int, payload: EveningClassUpdate, teacher: di
     require_evening_class(class_id, teacher["id"])
     with get_db() as db:
         db.execute(
-            "UPDATE evening_classes SET name = ?, note = ?, updated_at = ? WHERE id = ? AND teacher_id = ?",
-            (payload.name, payload.note, now_iso(), class_id, teacher["id"]),
+            "UPDATE evening_classes SET name = ?, updated_at = ? WHERE id = ? AND teacher_id = ?",
+            (payload.name, now_iso(), class_id, teacher["id"]),
         )
         row = db.execute(
             "SELECT * FROM evening_classes WHERE id = ? AND teacher_id = ?",
@@ -791,6 +804,64 @@ def delete_evening_class(class_id: int, teacher: dict = CurrentTeacher):
     require_evening_class(class_id, teacher["id"])
     with get_db() as db:
         db.execute("DELETE FROM evening_classes WHERE id = ? AND teacher_id = ?", (class_id, teacher["id"]))
+    return {"ok": True}
+
+
+@app.get("/api/group-classes")
+def list_group_classes(teacher: dict = CurrentTeacher):
+    with get_db() as db:
+        rows = db.execute(
+            """
+            SELECT *
+            FROM group_classes
+            WHERE teacher_id = ?
+            ORDER BY id DESC
+            """,
+            (teacher["id"],),
+        ).fetchall()
+    return {"classes": [dict(row) for row in rows]}
+
+
+@app.post("/api/group-classes")
+def create_group_class(payload: GroupClassCreate, teacher: dict = CurrentTeacher):
+    timestamp = now_iso()
+    with get_db() as db:
+        cursor = db.execute(
+            """
+            INSERT INTO group_classes (teacher_id, name, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (teacher["id"], payload.name, timestamp, timestamp),
+        )
+        row = db.execute("SELECT * FROM group_classes WHERE id = ?", (cursor.lastrowid,)).fetchone()
+    return {"class": dict(row)}
+
+
+@app.get("/api/group-classes/{class_id}")
+def get_group_class(class_id: int, teacher: dict = CurrentTeacher):
+    return {"class": require_group_class(class_id, teacher["id"])}
+
+
+@app.put("/api/group-classes/{class_id}")
+def update_group_class(class_id: int, payload: GroupClassUpdate, teacher: dict = CurrentTeacher):
+    require_group_class(class_id, teacher["id"])
+    with get_db() as db:
+        db.execute(
+            "UPDATE group_classes SET name = ?, updated_at = ? WHERE id = ? AND teacher_id = ?",
+            (payload.name, now_iso(), class_id, teacher["id"]),
+        )
+        row = db.execute(
+            "SELECT * FROM group_classes WHERE id = ? AND teacher_id = ?",
+            (class_id, teacher["id"]),
+        ).fetchone()
+    return {"class": dict(row)}
+
+
+@app.delete("/api/group-classes/{class_id}")
+def delete_group_class(class_id: int, teacher: dict = CurrentTeacher):
+    require_group_class(class_id, teacher["id"])
+    with get_db() as db:
+        db.execute("DELETE FROM group_classes WHERE id = ? AND teacher_id = ?", (class_id, teacher["id"]))
     return {"ok": True}
 
 
@@ -829,9 +900,9 @@ def bulk_create_evening_students(class_id: int, payload: EveningStudentBulkCreat
             db.execute(
                 """
                 INSERT INTO evening_students (
-                    teacher_id, class_id, name, grade, school, note, created_at, updated_at
+                    teacher_id, class_id, name, grade, school, created_at, updated_at
                 )
-                VALUES (?, ?, ?, '', '', '', ?, ?)
+                VALUES (?, ?, ?, '', '', ?, ?)
                 """,
                 (teacher["id"], class_id, name, timestamp, timestamp),
             )
@@ -854,10 +925,10 @@ def update_evening_student(student_id: int, payload: EveningStudentUpdate, teach
         db.execute(
             """
             UPDATE evening_students
-            SET name = ?, grade = ?, school = ?, note = ?, updated_at = ?
+            SET name = ?, grade = ?, school = ?, updated_at = ?
             WHERE id = ? AND teacher_id = ?
             """,
-            (payload.name, payload.grade, payload.school, payload.note, now_iso(), student_id, teacher["id"]),
+            (payload.name, payload.grade, payload.school, now_iso(), student_id, teacher["id"]),
         )
         row = db.execute(
             "SELECT * FROM evening_students WHERE id = ? AND teacher_id = ?",
@@ -886,6 +957,32 @@ def list_evening_monthly_feedbacks(student_id: int, teacher: dict = CurrentTeach
             """,
             (student_id, teacher["id"]),
         ).fetchall()
+    return {"feedbacks": [dict(row) for row in rows]}
+
+
+@app.get("/api/evening/monthly-feedbacks")
+def search_evening_monthly_feedbacks(
+    start_date: str = Query(default=""),
+    end_date: str = Query(default=""),
+    teacher: dict = CurrentTeacher,
+):
+    query = """
+        SELECT f.*, s.name AS student_name, s.grade, s.school, c.name AS class_name
+        FROM evening_monthly_feedbacks f
+        JOIN evening_students s ON s.id = f.student_id
+        JOIN evening_classes c ON c.id = s.class_id
+        WHERE f.teacher_id = ?
+    """
+    params: list[str | int] = [teacher["id"]]
+    if start_date:
+        query += " AND f.feedback_month >= ?"
+        params.append(start_date[:7])
+    if end_date:
+        query += " AND f.feedback_month <= ?"
+        params.append(end_date[:7])
+    query += " ORDER BY f.feedback_month DESC, f.id DESC"
+    with get_db() as db:
+        rows = db.execute(query, params).fetchall()
     return {"feedbacks": [dict(row) for row in rows]}
 
 
