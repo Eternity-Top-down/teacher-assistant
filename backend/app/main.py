@@ -1,5 +1,3 @@
-import base64
-import binascii
 from datetime import datetime, timedelta
 
 import sqlite3
@@ -8,19 +6,14 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 
-from .ai_client import analyze_lesson_materials, generate_evening_monthly_feedback, generate_feedback
+from .ai_client import generate_evening_feedback, generate_feedback, organize_lesson_note
 from .ai_settings import (
     AIConfig,
     ai_settings_summary,
     get_teacher_ai_settings,
-    get_teacher_vision_settings,
     require_teacher_ai_config,
-    require_teacher_vision_config,
     save_teacher_ai_settings,
-    save_teacher_vision_settings,
     test_ai_connection,
-    test_vision_connection,
-    vision_settings_summary,
 )
 from .database import get_db, init_db, now_iso
 from .email_service import make_code, send_verification_email
@@ -30,27 +23,25 @@ from .schemas import (
     EmailCodeRequest,
     EveningClassCreate,
     EveningClassUpdate,
-    EveningMonthlyFeedbackCreate,
-    EveningMonthlyFeedbackUpdate,
-    EveningMonthlyGenerateRequest,
+    EveningFeedbackCreate,
+    EveningFeedbackGenerateRequest,
+    EveningFeedbackUpdate,
     EveningStudentBulkCreate,
     EveningStudentUpdate,
     FeedbackCreate,
     FeedbackGenerateRequest,
+    FeedbackOrganizeRequest,
+    FeedbackOrganizeResponse,
     FeedbackUpdate,
     GroupClassCreate,
     GroupClassUpdate,
     LoginRequest,
-    MaterialsAnalyzeRequest,
-    MaterialsAnalyzeResponse,
     RegisterRequest,
     StudentCreate,
     StudentUpdate,
     StyleExampleCreate,
     StyleExampleFromFeedback,
     StyleExampleUpdate,
-    VisionSettingsTest,
-    VisionSettingsUpdate,
 )
 from .security import CurrentTeacher, create_token, hash_password, verify_password
 
@@ -128,15 +119,59 @@ def require_evening_student(student_id: int, teacher_id: int) -> dict:
     return dict(row)
 
 
-def require_evening_monthly_feedback(feedback_id: int, teacher_id: int) -> dict:
+def require_evening_feedback(feedback_id: int, teacher_id: int) -> dict:
     with get_db() as db:
         row = db.execute(
-            "SELECT * FROM evening_monthly_feedbacks WHERE id = ? AND teacher_id = ?",
+            "SELECT * FROM evening_feedbacks WHERE id = ? AND teacher_id = ?",
             (feedback_id, teacher_id),
         ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="晚辅反馈不存在")
     return dict(row)
+
+
+def require_evening_monthly_feedback(feedback_id: int, teacher_id: int) -> dict:
+    return require_evening_feedback(feedback_id, teacher_id)
+
+
+def evening_period_meta(period_type: str, period_value: str) -> dict[str, str]:
+    try:
+        if period_type == "day":
+            value = datetime.strptime(period_value, "%Y-%m-%d").date()
+            return {
+                "period_type": "day",
+                "period_value": period_value,
+                "period_start": period_value,
+                "period_end": period_value,
+                "period_label": value.strftime("%Y-%m-%d"),
+            }
+        if period_type == "week":
+            iso_year_text, iso_week_text = period_value.split("-W", 1)
+            iso_year = int(iso_year_text)
+            iso_week = int(iso_week_text)
+            start = datetime.fromisocalendar(iso_year, iso_week, 1).date()
+            end = start + timedelta(days=6)
+            return {
+                "period_type": "week",
+                "period_value": f"{iso_year:04d}-W{iso_week:02d}",
+                "period_start": start.isoformat(),
+                "period_end": end.isoformat(),
+                "period_label": f"{iso_year:04d}年第{iso_week:02d}周",
+            }
+        if period_type == "month":
+            value = datetime.strptime(period_value, "%Y-%m").date()
+            next_month = (value.replace(day=28) + timedelta(days=4)).replace(day=1)
+            end = next_month - timedelta(days=1)
+            return {
+                "period_type": "month",
+                "period_value": period_value,
+                "period_start": value.isoformat(),
+                "period_end": end.isoformat(),
+                "period_label": value.strftime("%Y年%m月"),
+            }
+    except (TypeError, ValueError):
+        pass
+    raise HTTPException(status_code=400, detail="请选择有效的晚辅反馈时间")
 
 
 def lesson_date_label(lesson_time: str) -> str:
@@ -222,38 +257,6 @@ def ai_error_detail(exc: Exception, action: str) -> str:
 
 def raise_ai_exception(exc: Exception, action: str) -> None:
     raise HTTPException(status_code=502, detail=ai_error_detail(exc, action)) from exc
-
-
-ALLOWED_MATERIAL_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
-MAX_MATERIAL_IMAGES = 9
-MAX_MATERIAL_IMAGE_BYTES = 8 * 1024 * 1024
-
-
-def validate_material_images(payload: MaterialsAnalyzeRequest) -> list[dict]:
-    if len(payload.images) > MAX_MATERIAL_IMAGES:
-        raise HTTPException(status_code=400, detail=f"一次最多上传 {MAX_MATERIAL_IMAGES} 张课堂资料图片")
-
-    images = []
-    for index, image in enumerate(payload.images, start=1):
-        mime_type = image.mime_type.lower().strip()
-        if mime_type not in ALLOWED_MATERIAL_IMAGE_TYPES:
-            raise HTTPException(status_code=400, detail=f"第 {index} 个资料页面格式不支持，请上传 JPG、PNG、WEBP 或 PDF")
-        try:
-            raw = base64.b64decode(image.data_base64, validate=True)
-        except (binascii.Error, ValueError) as exc:
-            raise HTTPException(status_code=400, detail=f"第 {index} 个资料页面数据无效，请重新选择") from exc
-        if not raw:
-            raise HTTPException(status_code=400, detail=f"第 {index} 个资料页面为空，请重新选择")
-        if len(raw) > MAX_MATERIAL_IMAGE_BYTES:
-            raise HTTPException(status_code=400, detail=f"第 {index} 个资料页面超过 8MB，请压缩后再上传")
-        images.append(
-            {
-                "name": image.name.strip() or f"课堂资料{index}",
-                "mime_type": mime_type,
-                "data_base64": image.data_base64,
-            }
-        )
-    return images
 
 
 @app.get("/api/health")
@@ -364,48 +367,6 @@ async def test_ai_settings(payload: AISettingsTest, teacher: dict = CurrentTeach
     return {"ok": True, "message": "连接成功，可以生成反馈", "reply": reply}
 
 
-@app.get("/api/settings/vision")
-def get_vision_settings(teacher: dict = CurrentTeacher):
-    row = get_teacher_vision_settings(teacher["id"])
-    return {"settings": vision_settings_summary(row)}
-
-
-@app.put("/api/settings/vision")
-def update_vision_settings(payload: VisionSettingsUpdate, teacher: dict = CurrentTeacher):
-    row = save_teacher_vision_settings(
-        teacher_id=teacher["id"],
-        provider=payload.provider,
-        base_url=payload.base_url,
-        model=payload.model,
-        api_key=payload.api_key,
-        clear_api_key=payload.clear_api_key,
-    )
-    return {"settings": vision_settings_summary(row)}
-
-
-@app.post("/api/settings/vision/test")
-async def test_vision_settings(payload: VisionSettingsTest, teacher: dict = CurrentTeacher):
-    api_key = payload.api_key.strip()
-    if not api_key:
-        saved = get_teacher_vision_settings(teacher["id"])
-        if saved and saved["encrypted_api_key"]:
-            config = require_teacher_vision_config(teacher["id"])
-            config.provider = payload.provider
-            config.base_url = payload.base_url.rstrip("/")
-            config.model = payload.model
-        else:
-            raise HTTPException(status_code=400, detail="请先填写图片识别模型的 API Key，或先保存一份可用配置")
-    else:
-        config = AIConfig(
-            api_key=api_key,
-            base_url=payload.base_url.rstrip("/"),
-            model=payload.model,
-            provider=payload.provider,
-        )
-    reply = await test_vision_connection(config)
-    return {"ok": True, "message": "图片识别模型连接成功", "reply": reply}
-
-
 @app.get("/api/settings/style-examples")
 def list_style_examples(teacher: dict = CurrentTeacher):
     with get_db() as db:
@@ -486,9 +447,9 @@ def create_style_example_from_feedback(payload: StyleExampleFromFeedback, teache
         content = feedback["final_feedback"]
         title = payload.title.strip() or feedback["lesson_title"] or f"一对一反馈样例 {feedback['lesson_time']}"
     else:
-        feedback = require_evening_monthly_feedback(payload.feedback_id, teacher["id"])
+        feedback = require_evening_feedback(payload.feedback_id, teacher["id"])
         content = feedback["final_feedback"]
-        title = payload.title.strip() or f"晚辅月度反馈样例 {feedback['feedback_month']}"
+        title = payload.title.strip() or f"晚辅反馈样例 {feedback['period_label']}"
 
     ensure_style_example_enable_slot(teacher["id"])
     timestamp = now_iso()
@@ -584,6 +545,36 @@ def list_feedbacks(student_id: int, teacher: dict = CurrentTeacher):
     return {"feedbacks": [dict(row) for row in rows]}
 
 
+@app.post("/api/students/{student_id}/feedbacks/organize", response_model=FeedbackOrganizeResponse)
+async def organize_feedback_note(student_id: int, payload: FeedbackOrganizeRequest, teacher: dict = CurrentTeacher):
+    student = require_student(student_id, teacher["id"])
+    if not (
+        payload.raw_lesson_note.strip()
+        or payload.lesson_summary.strip()
+        or payload.performance_summary.strip()
+        or payload.advice_summary.strip()
+        or payload.homework_plan.strip()
+    ):
+        raise HTTPException(status_code=400, detail="请先填写本节课原始记录")
+    ai_config = require_teacher_ai_config(teacher["id"])
+    try:
+        return await organize_lesson_note(
+            student_name=student["name"],
+            subject=student["subject"] or "数学",
+            lesson_title=payload.lesson_title,
+            raw_lesson_note=payload.raw_lesson_note,
+            lesson_summary=payload.lesson_summary,
+            performance_summary=payload.performance_summary,
+            advice_summary=payload.advice_summary,
+            homework_plan=payload.homework_plan,
+            ai_config=ai_config,
+        )
+    except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
+        raise_ai_exception(exc, "课堂记录整理")
+    except Exception as exc:
+        raise_ai_exception(exc, "课堂记录整理")
+
+
 @app.post("/api/students/{student_id}/feedbacks/generate")
 async def create_ai_draft(student_id: int, payload: FeedbackGenerateRequest, teacher: dict = CurrentTeacher):
     student = require_student(student_id, teacher["id"])
@@ -604,7 +595,6 @@ async def create_ai_draft(student_id: int, payload: FeedbackGenerateRequest, tea
             performance_summary=payload.performance_summary,
             advice_summary=payload.advice_summary,
             homework_plan=payload.homework_plan,
-            supplement_summary=payload.supplement_summary,
             style_examples=list_enabled_style_examples(teacher["id"]) if payload.use_style_examples else [],
             ai_config=ai_config,
         )
@@ -613,27 +603,6 @@ async def create_ai_draft(student_id: int, payload: FeedbackGenerateRequest, tea
     except Exception as exc:
         raise_ai_exception(exc, "AI 初稿生成")
     return {"draft": draft}
-
-
-@app.post("/api/students/{student_id}/feedbacks/materials/analyze", response_model=MaterialsAnalyzeResponse)
-async def analyze_feedback_materials(student_id: int, payload: MaterialsAnalyzeRequest, teacher: dict = CurrentTeacher):
-    student = require_student(student_id, teacher["id"])
-    images = validate_material_images(payload)
-    vision_config = require_teacher_vision_config(teacher["id"])
-    try:
-        return await analyze_lesson_materials(
-            student_name=student["name"],
-            subject=payload.subject or student["subject"] or "数学",
-            lesson_title=payload.lesson_title,
-            images=images,
-            ai_config=vision_config,
-        )
-    except (httpx.HTTPError, KeyError, IndexError, TypeError) as exc:
-        raise_ai_exception(exc, "课堂资料识别")
-    except ValueError as exc:
-        raise HTTPException(status_code=502, detail=f"课堂资料识别结果格式异常，请重试或换一个图片识别模型。{exc}") from exc
-    except Exception as exc:
-        raise_ai_exception(exc, "课堂资料识别")
 
 
 @app.post("/api/students/{student_id}/feedbacks")
@@ -873,7 +842,7 @@ def list_evening_students(class_id: int, teacher: dict = CurrentTeacher):
             """
             SELECT s.*, COUNT(f.id) AS feedback_count
             FROM evening_students s
-            LEFT JOIN evening_monthly_feedbacks f ON f.student_id = s.id
+            LEFT JOIN evening_feedbacks f ON f.student_id = s.id
             WHERE s.class_id = ? AND s.teacher_id = ?
             GROUP BY s.id
             ORDER BY s.id DESC
@@ -945,61 +914,72 @@ def delete_evening_student(student_id: int, teacher: dict = CurrentTeacher):
     return {"ok": True}
 
 
-@app.get("/api/evening/students/{student_id}/monthly-feedbacks")
-def list_evening_monthly_feedbacks(student_id: int, teacher: dict = CurrentTeacher):
+@app.get("/api/evening/students/{student_id}/feedbacks")
+def list_evening_feedbacks(student_id: int, teacher: dict = CurrentTeacher):
     require_evening_student(student_id, teacher["id"])
     with get_db() as db:
         rows = db.execute(
             """
-            SELECT * FROM evening_monthly_feedbacks
+            SELECT * FROM evening_feedbacks
             WHERE student_id = ? AND teacher_id = ?
-            ORDER BY feedback_month DESC, id DESC
+            ORDER BY period_start DESC, id DESC
             """,
             (student_id, teacher["id"]),
         ).fetchall()
     return {"feedbacks": [dict(row) for row in rows]}
 
 
-@app.get("/api/evening/monthly-feedbacks")
-def search_evening_monthly_feedbacks(
+@app.get("/api/evening/feedbacks")
+def search_evening_feedbacks(
     start_date: str = Query(default=""),
     end_date: str = Query(default=""),
+    period_type: str = Query(default=""),
     teacher: dict = CurrentTeacher,
 ):
     query = """
         SELECT f.*, s.name AS student_name, s.grade, s.school, c.name AS class_name
-        FROM evening_monthly_feedbacks f
+        FROM evening_feedbacks f
         JOIN evening_students s ON s.id = f.student_id
         JOIN evening_classes c ON c.id = s.class_id
         WHERE f.teacher_id = ?
     """
     params: list[str | int] = [teacher["id"]]
+    if period_type:
+        if period_type not in {"day", "week", "month"}:
+            raise HTTPException(status_code=400, detail="反馈类型无效")
+        query += " AND f.period_type = ?"
+        params.append(period_type)
     if start_date:
-        query += " AND f.feedback_month >= ?"
-        params.append(start_date[:7])
+        query += " AND f.period_end >= ?"
+        params.append(start_date[:10])
     if end_date:
-        query += " AND f.feedback_month <= ?"
-        params.append(end_date[:7])
-    query += " ORDER BY f.feedback_month DESC, f.id DESC"
+        query += " AND f.period_start <= ?"
+        params.append(end_date[:10])
+    query += " ORDER BY f.period_start DESC, f.id DESC"
     with get_db() as db:
         rows = db.execute(query, params).fetchall()
     return {"feedbacks": [dict(row) for row in rows]}
 
 
-@app.post("/api/evening/students/{student_id}/monthly-feedbacks/generate")
-async def generate_evening_monthly_draft(
-    student_id: int,
-    payload: EveningMonthlyGenerateRequest,
+@app.post("/api/evening/classes/{class_id}/feedbacks/generate")
+async def generate_evening_draft(
+    class_id: int,
+    payload: EveningFeedbackGenerateRequest,
     teacher: dict = CurrentTeacher,
 ):
-    student = require_evening_student(student_id, teacher["id"])
+    require_evening_class(class_id, teacher["id"])
+    student = require_evening_student(payload.student_id, teacher["id"])
+    if student["class_id"] != class_id:
+        raise HTTPException(status_code=400, detail="该学生不属于当前晚辅班级")
+    period = evening_period_meta(payload.period_type, payload.period_value)
     ai_config = require_teacher_ai_config(teacher["id"])
     try:
-        draft = await generate_evening_monthly_feedback(
+        draft = await generate_evening_feedback(
             student_name=student["name"],
             grade=student["grade"],
             school=student["school"],
-            feedback_month=payload.feedback_month,
+            period_type=period["period_type"],
+            period_label=period["period_label"],
             homework_summary=payload.homework_summary,
             ai_config=ai_config,
         )
@@ -1010,28 +990,37 @@ async def generate_evening_monthly_draft(
     return {"draft": draft}
 
 
-@app.post("/api/evening/students/{student_id}/monthly-feedbacks")
-def create_evening_monthly_feedback(
-    student_id: int,
-    payload: EveningMonthlyFeedbackCreate,
+@app.post("/api/evening/classes/{class_id}/feedbacks")
+def create_evening_feedback(
+    class_id: int,
+    payload: EveningFeedbackCreate,
     teacher: dict = CurrentTeacher,
 ):
-    require_evening_student(student_id, teacher["id"])
+    require_evening_class(class_id, teacher["id"])
+    student = require_evening_student(payload.student_id, teacher["id"])
+    if student["class_id"] != class_id:
+        raise HTTPException(status_code=400, detail="该学生不属于当前晚辅班级")
+    period = evening_period_meta(payload.period_type, payload.period_value)
     timestamp = now_iso()
     try:
         with get_db() as db:
             cursor = db.execute(
                 """
-                INSERT INTO evening_monthly_feedbacks (
-                    teacher_id, student_id, feedback_month, homework_summary,
+                INSERT INTO evening_feedbacks (
+                    teacher_id, student_id, period_type, period_value,
+                    period_start, period_end, period_label, homework_summary,
                     ai_draft, final_feedback, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     teacher["id"],
-                    student_id,
-                    payload.feedback_month,
+                    payload.student_id,
+                    period["period_type"],
+                    period["period_value"],
+                    period["period_start"],
+                    period["period_end"],
+                    period["period_label"],
                     payload.homework_summary,
                     payload.ai_draft,
                     payload.final_feedback,
@@ -1040,32 +1029,40 @@ def create_evening_monthly_feedback(
                 ),
             )
             row = db.execute(
-                "SELECT * FROM evening_monthly_feedbacks WHERE id = ?",
+                "SELECT * FROM evening_feedbacks WHERE id = ?",
                 (cursor.lastrowid,),
             ).fetchone()
     except sqlite3.IntegrityError as exc:
-        raise HTTPException(status_code=400, detail="该学生这个月份已经有反馈，请编辑已有反馈") from exc
+        raise HTTPException(status_code=400, detail="该学生这个时间段已经有反馈，请编辑已有反馈") from exc
     return {"feedback": dict(row)}
 
 
-@app.put("/api/evening/monthly-feedbacks/{feedback_id}")
-def update_evening_monthly_feedback(
+@app.put("/api/evening/feedbacks/{feedback_id}")
+def update_evening_feedback(
     feedback_id: int,
-    payload: EveningMonthlyFeedbackUpdate,
+    payload: EveningFeedbackUpdate,
     teacher: dict = CurrentTeacher,
 ):
-    require_evening_monthly_feedback(feedback_id, teacher["id"])
+    require_evening_feedback(feedback_id, teacher["id"])
+    require_evening_student(payload.student_id, teacher["id"])
+    period = evening_period_meta(payload.period_type, payload.period_value)
     try:
         with get_db() as db:
             db.execute(
                 """
-                UPDATE evening_monthly_feedbacks
-                SET feedback_month = ?, homework_summary = ?, ai_draft = ?,
-                    final_feedback = ?, updated_at = ?
+                UPDATE evening_feedbacks
+                SET student_id = ?, period_type = ?, period_value = ?,
+                    period_start = ?, period_end = ?, period_label = ?,
+                    homework_summary = ?, ai_draft = ?, final_feedback = ?, updated_at = ?
                 WHERE id = ? AND teacher_id = ?
                 """,
                 (
-                    payload.feedback_month,
+                    payload.student_id,
+                    period["period_type"],
+                    period["period_value"],
+                    period["period_start"],
+                    period["period_end"],
+                    period["period_label"],
                     payload.homework_summary,
                     payload.ai_draft,
                     payload.final_feedback,
@@ -1075,20 +1072,26 @@ def update_evening_monthly_feedback(
                 ),
             )
             row = db.execute(
-                "SELECT * FROM evening_monthly_feedbacks WHERE id = ? AND teacher_id = ?",
+                """
+                SELECT f.*, s.name AS student_name, s.grade, s.school, c.name AS class_name
+                FROM evening_feedbacks f
+                JOIN evening_students s ON s.id = f.student_id
+                JOIN evening_classes c ON c.id = s.class_id
+                WHERE f.id = ? AND f.teacher_id = ?
+                """,
                 (feedback_id, teacher["id"]),
             ).fetchone()
     except sqlite3.IntegrityError as exc:
-        raise HTTPException(status_code=400, detail="该学生这个月份已经有反馈，请编辑已有反馈") from exc
+        raise HTTPException(status_code=400, detail="该学生这个时间段已经有反馈，请编辑已有反馈") from exc
     return {"feedback": dict(row)}
 
 
-@app.delete("/api/evening/monthly-feedbacks/{feedback_id}")
-def delete_evening_monthly_feedback(feedback_id: int, teacher: dict = CurrentTeacher):
-    require_evening_monthly_feedback(feedback_id, teacher["id"])
+@app.delete("/api/evening/feedbacks/{feedback_id}")
+def delete_evening_feedback(feedback_id: int, teacher: dict = CurrentTeacher):
+    require_evening_feedback(feedback_id, teacher["id"])
     with get_db() as db:
         db.execute(
-            "DELETE FROM evening_monthly_feedbacks WHERE id = ? AND teacher_id = ?",
+            "DELETE FROM evening_feedbacks WHERE id = ? AND teacher_id = ?",
             (feedback_id, teacher["id"]),
         )
     return {"ok": True}

@@ -101,17 +101,21 @@ def init_db() -> None:
                 FOREIGN KEY (class_id) REFERENCES evening_classes(id) ON DELETE CASCADE
             );
 
-            CREATE TABLE IF NOT EXISTS evening_monthly_feedbacks (
+            CREATE TABLE IF NOT EXISTS evening_feedbacks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 teacher_id INTEGER NOT NULL,
                 student_id INTEGER NOT NULL,
-                feedback_month TEXT NOT NULL,
+                period_type TEXT NOT NULL,
+                period_value TEXT NOT NULL,
+                period_start TEXT NOT NULL,
+                period_end TEXT NOT NULL,
+                period_label TEXT NOT NULL,
                 homework_summary TEXT NOT NULL,
                 ai_draft TEXT NOT NULL,
                 final_feedback TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                UNIQUE(student_id, feedback_month),
+                UNIQUE(student_id, period_type, period_value),
                 FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE,
                 FOREIGN KEY (student_id) REFERENCES evening_students(id) ON DELETE CASCADE
             );
@@ -124,18 +128,6 @@ def init_db() -> None:
                 model TEXT NOT NULL,
                 encrypted_api_key TEXT NOT NULL DEFAULT '',
                 feedback_format_mode TEXT NOT NULL DEFAULT 'structured',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE
-            );
-
-            CREATE TABLE IF NOT EXISTS teacher_vision_settings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                teacher_id INTEGER NOT NULL UNIQUE,
-                provider TEXT NOT NULL DEFAULT 'doubao_v',
-                base_url TEXT NOT NULL,
-                model TEXT NOT NULL,
-                encrypted_api_key TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE
@@ -229,3 +221,31 @@ def init_db() -> None:
             db.execute("PRAGMA foreign_keys = ON")
             if violations:
                 raise RuntimeError("evening_students migration failed foreign key check")
+        legacy_evening_feedback_table = db.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'evening_monthly_feedbacks'"
+        ).fetchone()
+        if legacy_evening_feedback_table:
+            db.execute(
+                """
+                INSERT OR IGNORE INTO evening_feedbacks (
+                    id, teacher_id, student_id, period_type, period_value,
+                    period_start, period_end, period_label, homework_summary,
+                    ai_draft, final_feedback, created_at, updated_at
+                )
+                SELECT
+                    id,
+                    teacher_id,
+                    student_id,
+                    'month',
+                    feedback_month,
+                    feedback_month || '-01',
+                    date(feedback_month || '-01', 'start of month', '+1 month', '-1 day'),
+                    substr(feedback_month, 1, 4) || '年' || substr(feedback_month, 6, 2) || '月',
+                    homework_summary,
+                    ai_draft,
+                    final_feedback,
+                    created_at,
+                    updated_at
+                FROM evening_monthly_feedbacks
+                """
+            )

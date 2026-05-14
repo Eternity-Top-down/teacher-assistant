@@ -37,8 +37,25 @@ class FeedbackGenerateRequest(BaseModel):
     performance_summary: str = Field(default="", max_length=1000)
     advice_summary: str = Field(default="", max_length=1000)
     homework_plan: str = Field(default="", max_length=1000)
-    supplement_summary: str = Field(default="", max_length=1000)
     use_style_examples: bool = True
+
+
+class FeedbackOrganizeRequest(BaseModel):
+    lesson_title: str = Field(default="", max_length=120)
+    lesson_time: str = Field(min_length=1)
+    raw_lesson_note: str = Field(default="", max_length=4000)
+    lesson_summary: str = Field(default="", max_length=2000)
+    performance_summary: str = Field(default="", max_length=1000)
+    advice_summary: str = Field(default="", max_length=1000)
+    homework_plan: str = Field(default="", max_length=1000)
+
+
+class FeedbackOrganizeResponse(BaseModel):
+    lesson_summary: str
+    performance_summary: str
+    advice_summary: str
+    homework_plan: str
+    missing_fields: list[str]
 
 
 class FeedbackCreate(BaseModel):
@@ -89,20 +106,26 @@ class EveningStudentUpdate(BaseModel):
     school: str = Field(default="", max_length=100)
 
 
-class EveningMonthlyGenerateRequest(BaseModel):
-    feedback_month: str = Field(pattern=r"^\d{4}-\d{2}$")
+class EveningFeedbackGenerateRequest(BaseModel):
+    student_id: int
+    period_type: str = Field(pattern=r"^(day|week|month)$")
+    period_value: str = Field(min_length=7, max_length=10)
     homework_summary: str = Field(min_length=5, max_length=2000)
 
 
-class EveningMonthlyFeedbackCreate(BaseModel):
-    feedback_month: str = Field(pattern=r"^\d{4}-\d{2}$")
+class EveningFeedbackCreate(BaseModel):
+    student_id: int
+    period_type: str = Field(pattern=r"^(day|week|month)$")
+    period_value: str = Field(min_length=7, max_length=10)
     homework_summary: str = Field(min_length=5, max_length=2000)
     ai_draft: str = Field(min_length=1)
     final_feedback: str = Field(min_length=1)
 
 
-class EveningMonthlyFeedbackUpdate(BaseModel):
-    feedback_month: str = Field(pattern=r"^\d{4}-\d{2}$")
+class EveningFeedbackUpdate(BaseModel):
+    student_id: int
+    period_type: str = Field(pattern=r"^(day|week|month)$")
+    period_value: str = Field(min_length=7, max_length=10)
     homework_summary: str = Field(min_length=5, max_length=2000)
     ai_draft: str = Field(min_length=1)
     final_feedback: str = Field(min_length=1)
@@ -124,41 +147,6 @@ class AISettingsTest(BaseModel):
     api_key: str = Field(default="", max_length=500)
 
 
-class VisionSettingsUpdate(BaseModel):
-    provider: str = Field(default="doubao_v", max_length=50)
-    base_url: str = Field(min_length=1, max_length=300)
-    model: str = Field(min_length=1, max_length=120)
-    api_key: str = Field(default="", max_length=500)
-    clear_api_key: bool = False
-
-
-class VisionSettingsTest(BaseModel):
-    provider: str = Field(default="doubao_v", max_length=50)
-    base_url: str = Field(min_length=1, max_length=300)
-    model: str = Field(min_length=1, max_length=120)
-    api_key: str = Field(default="", max_length=500)
-
-
-class MaterialImageInput(BaseModel):
-    name: str = Field(default="", max_length=200)
-    mime_type: str = Field(min_length=1, max_length=80)
-    data_base64: str = Field(min_length=1)
-
-
-class MaterialsAnalyzeRequest(BaseModel):
-    lesson_title: str = Field(default="", max_length=120)
-    subject: str = Field(default="", max_length=50)
-    images: list[MaterialImageInput] = Field(min_length=1, max_length=9)
-
-
-class MaterialsAnalyzeResponse(BaseModel):
-    knowledge_points: list[str]
-    question_types: list[str]
-    practice_summary: str
-    weak_points: list[str]
-    lesson_summary_suggestion: str
-
-
 class StyleExampleCreate(BaseModel):
     title: str = Field(default="", max_length=80)
     content: str = Field(min_length=20, max_length=5000)
@@ -172,6 +160,6 @@ class StyleExampleUpdate(BaseModel):
 
 
 class StyleExampleFromFeedback(BaseModel):
-    feedback_type: str = Field(default="one_on_one", pattern=r"^(one_on_one|evening_monthly)$")
+    feedback_type: str = Field(default="one_on_one", pattern=r"^(one_on_one|evening_feedback|evening_monthly)$")
     feedback_id: int
     title: str = Field(default="", max_length=80)

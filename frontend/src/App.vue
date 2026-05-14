@@ -1,7 +1,5 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
-import * as pdfjsLib from 'pdfjs-dist'
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
 import { clearToken, request, setToken } from './api'
 import authHeroArt from './assets/illustrations/auth-hero-crayon.png'
 import dashboardBannerArt from './assets/illustrations/dashboard-banner.jpg'
@@ -14,8 +12,6 @@ import oneOnOneStickerArt from './assets/illustrations/one-on-one-sticker.jpg'
 import sidebarCampusArt from './assets/illustrations/sidebar-campus-crayon.png'
 import sidebarDoodleArt from './assets/illustrations/sidebar-doodle-crayon.png'
 import sidebarLogoArt from './assets/illustrations/sidebar-logo-crayon.png'
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 const teacher = ref(null)
 const route = ref(window.location.hash || '#/one-on-one')
@@ -52,7 +48,6 @@ const isEditingEveningDetail = ref(false)
 const editingClass = ref(null)
 const editingGroupClass = ref(null)
 const aiSettings = ref(null)
-const visionSettings = ref(null)
 const styleExamples = ref([])
 const detailStyleExample = ref(null)
 const isEditingStyleExample = ref(false)
@@ -60,70 +55,58 @@ const showAccountMenu = ref(false)
 const showApiOnboarding = ref(false)
 const showSettingsGuide = ref(false)
 const showFeedbackStyleModal = ref(false)
-const showMaterialsModal = ref(false)
 const showWritingReference = ref(false)
-const materialInput = ref(null)
-const materialImages = ref([])
-const materialAnalysis = ref(null)
-const materialsAnalyzing = ref(false)
-const materialsConverting = ref(false)
-const classroomContentMode = ref('qa')
-const feedbackSupplement = ref('')
+const rawLessonNote = ref('')
+const hasOrganizedLessonNote = ref(false)
+const rawLessonNoteDirty = ref(false)
+const organizeMissingFields = ref([])
 const useStyleExamplesForDraft = ref(true)
 const feedbackDraftStatus = ref('')
 const hasSavedFeedbackDraft = ref(false)
 const styleExamplePage = ref(1)
 const feedbackStyleExamplePage = ref(1)
 const feedbackSearchForm = reactive(defaultFeedbackSearchRange())
-const eveningFeedbackSearchForm = reactive(defaultMonthlySearchRange())
+const eveningFeedbackSearchForm = reactive(defaultEveningSearchRange())
 const studentHistoryFilter = reactive({ start_date: '', end_date: '' })
 const feedbackPanels = reactive(defaultFeedbackPanels())
 
 const API_ONBOARDING_SEEN_KEY = 'api_onboarding_seen_v1'
 const SETTINGS_GUIDE_SEEN_KEY = 'settings_guide_seen_v1'
-const MAX_MATERIAL_IMAGES = 9
-const MAX_MATERIAL_IMAGE_SIZE = 8 * 1024 * 1024
-const MAX_MATERIAL_PDF_SIZE = 25 * 1024 * 1024
-const MAX_PDF_RENDER_WIDTH = 1500
-const MATERIAL_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
-const MATERIAL_PDF_TYPE = 'application/pdf'
-const MATERIAL_ACCEPT_TYPES = [...MATERIAL_IMAGE_TYPES, MATERIAL_PDF_TYPE].join(',')
-const MATERIALS_MODAL_VISIBLE_WIDTH = 168
-const MATERIALS_MODAL_VISIBLE_HEIGHT = 96
 const WRITING_REFERENCE_VISIBLE_WIDTH = 132
 const WRITING_REFERENCE_VISIBLE_HEIGHT = 76
 const STYLE_EXAMPLE_PAGE_SIZE = 5
 const MAX_ENABLED_STYLE_EXAMPLES = 5
-const CLASSROOM_CONTENT_MODES = [
-  { value: 'qa', label: '问答模式' },
-  { value: 'free', label: '自由模式' },
+const EVENING_PERIOD_TYPES = [
+  { value: 'day', label: '按天' },
+  { value: 'week', label: '按周' },
+  { value: 'month', label: '按月' },
 ]
-const QA_FIELDS = [
+const FEEDBACK_CORE_FIELDS = [
   {
-    key: 'lesson',
     formField: 'lesson_summary',
-    title: '1. 本节课主要学了什么？',
+    title: '1. 课堂学习内容',
     placeholder: '写本节课学习、复习或检测的知识点、题型、方法和练习内容',
   },
   {
-    key: 'performance',
     formField: 'performance_summary',
-    title: '2. 学生课堂表现和掌握情况如何？',
+    title: '2. 课堂表现与知识掌握情况',
     placeholder: '写上课状态、练习完成情况、掌握得好的地方和还不熟的知识点',
   },
   {
-    key: 'advice',
     formField: 'advice_summary',
-    title: '3. 课后建议重点是什么？',
-    placeholder: '写学生需要改进、注意或继续巩固的地方，尽量对应课堂问题',
+    title: '3. 课后建议',
+    placeholder: '写老师真实提出的建议、提醒或改进方向，例如复盘错题、注意审题、计算不要跳步',
   },
   {
-    key: 'homework',
     formField: 'homework_plan',
-    title: '4. 作业安排是什么？',
-    placeholder: '严格写本次实际布置的作业，不额外新增内容',
+    title: '4. 作业安排',
+    placeholder: '严格写本次实际布置的具体任务；没有作业请写“无”或“本次无额外作业”',
   },
 ]
+const FIELD_TITLES = FEEDBACK_CORE_FIELDS.reduce((payload, field) => {
+  payload[field.formField] = field.title
+  return payload
+}, {})
 const WRITING_REFERENCE_SECTIONS = [
   {
     title: '课堂学习内容',
@@ -137,18 +120,13 @@ const WRITING_REFERENCE_SECTIONS = [
   },
   {
     title: '课后建议',
-    guide: '写学生哪里可以改进，哪些地方需要注意和巩固。',
-    sample: '继续巩固基础题型，加强一次函数图像理解，熟悉因式分解公式法应用，做题时一步步计算，避免跳步。',
+    guide: '写老师明确提出的建议、提醒、改进方向或习惯要求，不要让 AI 自行替你判断。',
+    sample: '建议课后继续巩固基础题型，加强一次函数图像理解，做题时一步步计算，避免跳步。',
   },
   {
     title: '作业安排',
-    guide: '严格按照实际布置的作业填写，不新增、不扩写。',
+    guide: '严格按照实际布置的具体任务填写，不新增、不扩写；复习、预习、订正、带资料都可以是作业。',
     sample: '复习本节课讲过的不等式和因式分解内容；预习学校正在学的分式内容；下节课带半期试卷用于分析错题。',
-  },
-  {
-    title: '内容补充',
-    guide: '忘了写、暂时不知道放哪一栏的信息放这里；这是补充事实，不是要求 AI 偏向某个部分。',
-    sample: '下节课计划讲分式；学生需要带半期试卷，课上一起分析错题和丢分点。',
   },
 ]
 
@@ -169,24 +147,14 @@ const aiSettingsForm = reactive({
   api_key: '',
   clear_api_key: false,
 })
-const visionSettingsForm = reactive({
-  provider: 'doubao_v',
-  base_url: 'https://ark.cn-beijing.volces.com/api/v3',
-  model: 'doubao-1.5-vision-pro-32k',
-  api_key: '',
-  clear_api_key: false,
-})
 const styleExampleForm = reactive({ title: '', content: '', enabled: true })
 const inlineStyleExampleForm = reactive({ title: '', content: '', enabled: true })
 const styleExampleEditForm = reactive({ title: '', content: '', enabled: true })
-const qaAnswers = reactive(defaultQaAnswers())
-const materialsModalFrame = reactive({ left: 160, top: 80, width: 760, height: 680 })
-const materialsModalDrag = reactive({ active: false, startX: 0, startY: 0, startLeft: 0, startTop: 0, startWidth: 0, startHeight: 0, mode: '' })
+const legacyQaAnswers = reactive(defaultQaAnswers())
 const writingReferenceFrame = reactive({ left: 220, top: 110, width: 560, height: 520 })
 const writingReferenceDrag = reactive({ active: false, startX: 0, startY: 0, startLeft: 0, startTop: 0, startWidth: 0, startHeight: 0, mode: '' })
 const settingsPanels = reactive({
-  feedback_ai: true,
-  vision_ai: false,
+  feedback_ai: false,
   style_examples: false,
 })
 
@@ -211,7 +179,7 @@ const AI_PRESETS = {
     label: 'Kimi / Moonshot',
     base_url: 'https://api.moonshot.ai/v1',
     model: 'kimi-k2.6',
-    hint: '适合长上下文材料整理，也可用于生成自然、完整的反馈正文。需要视觉输入时建议切到图片识别模型里的 Kimi K2.5。',
+    hint: '适合长上下文课堂记录整理，也可用于生成自然、完整的反馈正文。',
     api_key_url: 'https://platform.moonshot.ai/console/api-keys',
     docs_url: 'https://platform.moonshot.ai/docs/overview',
   },
@@ -234,54 +202,9 @@ const AI_PRESETS = {
   custom: { label: '自定义兼容接口', base_url: '', model: '', hint: '用于其他 OpenAI-compatible 文本生成模型。', api_key_url: '', docs_url: '' },
 }
 
-const VISION_PRESETS = {
-  doubao_v: {
-    label: '火山方舟 - 豆包视觉理解（推荐，有免费额度）',
-    base_url: 'https://ark.cn-beijing.volces.com/api/v3',
-    model: 'doubao-1.5-vision-pro-32k',
-    hint: '适合课堂图片理解，多数新账号可在火山方舟领取免费推理额度。若控制台要求推理接入点，请把模型名改成 ep-... 接入点 ID。',
-    api_key_url: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey',
-    docs_url: 'https://www.volcengine.com/docs/82379/1168048',
-  },
-  qwen_vl: {
-    label: '阿里云百炼 - 通义千问视觉/OCR',
-    base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    model: 'qwen-vl-ocr-latest',
-    hint: '适合讲义、试卷、表格、手写和错题图片识别；可选 qwen-vl-ocr、qwen3-vl-flash、qwen3-vl-plus。',
-    api_key_url: 'https://bailian.console.aliyun.com/?tab=model#/api-key',
-    docs_url: 'https://www.alibabacloud.com/help/zh/doc-detail/2845564.html',
-  },
-  kimi: {
-    label: 'Kimi / Moonshot 视觉模型',
-    base_url: 'https://api.moonshot.ai/v1',
-    model: 'kimi-k2.5',
-    hint: '适合长上下文、多图课堂材料理解；也可按 Kimi 官方视觉模型列表填写。',
-    api_key_url: 'https://platform.moonshot.ai/console/api-keys',
-    docs_url: 'https://platform.moonshot.ai/docs/guide/use-kimi-vision-model',
-  },
-  zhipu_v: {
-    label: '智谱 AI - GLM 视觉模型',
-    base_url: 'https://open.bigmodel.cn/api/paas/v4',
-    model: 'glm-4.6v-flash',
-    hint: '适合图片理解、视觉总结和教育课件类场景；如需更高质量可按账号权限改用 glm-4v-plus-0111。',
-    api_key_url: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys',
-    docs_url: 'https://docs.bigmodel.cn/cn/guide/models/free/glm-4.6v-flash',
-  },
-  deepseek: {
-    label: 'DeepSeek（通常不推荐用于图片识别）',
-    base_url: 'https://api.deepseek.com',
-    model: 'deepseek-v4-flash',
-    hint: 'DeepSeek 常用于文本生成；请确认当前模型是否支持图片输入。课堂资料识别需要视觉/多模态模型。',
-    api_key_url: 'https://platform.deepseek.com/api_keys',
-    docs_url: 'https://api-docs.deepseek.com/',
-  },
-  custom: { label: '自定义兼容接口', base_url: '', model: '', hint: '用于其他 OpenAI-compatible 多模态供应商。', api_key_url: '', docs_url: '' },
-}
-
 const isAuthed = computed(() => Boolean(teacher.value))
 const teacherInitial = computed(() => (teacher.value?.email || 'T').slice(0, 1).toUpperCase())
 const selectedAIPreset = computed(() => AI_PRESETS[aiSettingsForm.provider] || AI_PRESETS.custom)
-const selectedVisionPreset = computed(() => VISION_PRESETS[visionSettingsForm.provider] || VISION_PRESETS.custom)
 const currentView = computed(() => {
   if (!isAuthed.value) return 'auth'
   if (route.value === '#/settings') return 'settings'
@@ -313,19 +236,20 @@ const styleExampleTotalPages = computed(() => totalPages(styleExamples.value.len
 const feedbackStyleExampleTotalPages = computed(() => totalPages(styleExamples.value.length))
 const paginatedStyleExamples = computed(() => pageItems(styleExamples.value, styleExamplePage.value))
 const paginatedFeedbackStyleExamples = computed(() => pageItems(styleExamples.value, feedbackStyleExamplePage.value))
-const materialStatus = computed(() => {
-  if (materialsConverting.value) return '正在转换 PDF 页面...'
-  if (materialsAnalyzing.value) return '正在识别课堂资料...'
-  if (materialAnalysis.value) return `已识别 ${materialImages.value.length} 个资料页面，可填入课堂学习内容`
-  if (materialImages.value.length) return `已选择 ${materialImages.value.length} / ${MAX_MATERIAL_IMAGES} 个资料页面，支持图片和 PDF`
-  return '可上传图片或 PDF，Word 请先导出为 PDF 后上传'
+const missingFeedbackFields = computed(() => FEEDBACK_CORE_FIELDS.filter((field) => !String(feedbackForm[field.formField] || '').trim()).map((field) => field.formField))
+const blockingMissingFields = computed(() => [...new Set([...organizeMissingFields.value, ...missingFeedbackFields.value])])
+const canGenerateFeedback = computed(() => blockingMissingFields.value.length === 0)
+const missingFieldText = computed(() => blockingMissingFields.value.map((field) => FIELD_TITLES[field] || field).join('、'))
+const eveningFeedbackStudentOptions = computed(() => {
+  if (eveningStudents.value.length) return eveningStudents.value
+  if (eveningDetail.value?.student_id) {
+    return [{
+      id: eveningDetail.value.student_id,
+      name: eveningDetail.value.student_name || currentEveningStudent.value?.name || '当前学生',
+    }]
+  }
+  return currentEveningStudent.value ? [currentEveningStudent.value] : []
 })
-const materialsModalStyle = computed(() => ({
-  left: `${materialsModalFrame.left}px`,
-  top: `${materialsModalFrame.top}px`,
-  width: `${materialsModalFrame.width}px`,
-  height: `${materialsModalFrame.height}px`,
-}))
 const writingReferenceStyle = computed(() => ({
   left: `${writingReferenceFrame.left}px`,
   top: `${writingReferenceFrame.top}px`,
@@ -357,6 +281,19 @@ function defaultQaAnswers() {
 
 function currentMonth() {
   return new Date().toISOString().slice(0, 7)
+}
+
+function currentWeek() {
+  const date = new Date()
+  const day = date.getDay() || 7
+  date.setDate(date.getDate() + 4 - day)
+  const yearStart = new Date(date.getFullYear(), 0, 1)
+  const week = Math.ceil((((date - yearStart) / 86400000) + 1) / 7)
+  return `${date.getFullYear()}-W${String(week).padStart(2, '0')}`
+}
+
+function currentDateInput() {
+  return dateInputValue(new Date())
 }
 
 function dateInputValue(date) {
@@ -391,6 +328,39 @@ function defaultMonthlySearchRange() {
   }
 }
 
+function defaultEveningSearchRange() {
+  const end = new Date()
+  const start = new Date()
+  start.setDate(end.getDate() - 90)
+  return {
+    start_date: dateInputValue(start),
+    end_date: dateInputValue(end),
+    period_type: '',
+  }
+}
+
+function defaultPeriodValue(type) {
+  if (type === 'day') return currentDateInput()
+  if (type === 'week') return currentWeek()
+  return currentMonth()
+}
+
+function periodInputType(type) {
+  if (type === 'day') return 'date'
+  if (type === 'week') return 'week'
+  return 'month'
+}
+
+function periodFieldLabel(type) {
+  if (type === 'day') return '反馈日期'
+  if (type === 'week') return '反馈周次'
+  return '反馈月份'
+}
+
+function periodTypeLabel(type) {
+  return EVENING_PERIOD_TYPES.find((item) => item.value === type)?.label || '按月'
+}
+
 function totalPages(total) {
   return Math.max(1, Math.ceil(total / STYLE_EXAMPLE_PAGE_SIZE))
 }
@@ -418,14 +388,16 @@ function setStyleExamplePage(page, target = 'settings') {
 function defaultFeedbackPanels() {
   return {
     content: true,
-    draft: true,
+    draft: false,
     final: true,
   }
 }
 
 function newMonthlyFeedback() {
   return {
-    feedback_month: currentMonth(),
+    student_id: '',
+    period_type: 'month',
+    period_value: currentMonth(),
     homework_summary: '',
     ai_draft: '',
     final_feedback: '',
@@ -466,7 +438,6 @@ function toggleSettingsPanel(panel) {
 
 function openSettingsPanel(panel) {
   settingsPanels.feedback_ai = panel === 'feedback_ai'
-  settingsPanels.vision_ai = panel === 'vision_ai'
   settingsPanels.style_examples = panel === 'style_examples'
 }
 
@@ -604,11 +575,12 @@ function assignFeedback(target, source) {
 
 function resetFeedbackForm() {
   assignFeedback(feedbackForm, newFeedback())
-  Object.assign(qaAnswers, defaultQaAnswers())
-  classroomContentMode.value = 'qa'
-  feedbackSupplement.value = ''
+  Object.assign(legacyQaAnswers, defaultQaAnswers())
+  rawLessonNote.value = ''
+  hasOrganizedLessonNote.value = false
+  rawLessonNoteDirty.value = false
+  organizeMissingFields.value = []
   useStyleExamplesForDraft.value = true
-  clearMaterialImages()
   feedbackDraftStatus.value = ''
 }
 
@@ -623,10 +595,6 @@ function hasFeedbackDraft(form) {
   )
 }
 
-function hasQaAnswers() {
-  return QA_FIELDS.some((field) => qaAnswers[field.key]?.trim())
-}
-
 function currentFeedbackDraftKey() {
   if (!teacher.value?.id || !currentStudent.value?.id) return ''
   return `one_feedback_draft:${teacher.value.id}:${currentStudent.value.id}`
@@ -635,10 +603,8 @@ function currentFeedbackDraftKey() {
 function feedbackDraftHasContent(draft) {
   return Boolean(
     hasFeedbackDraft(draft?.feedback || {}) ||
-      draft?.material_analysis ||
-      Object.values(draft?.qa_answers || {}).some((value) => String(value || '').trim()) ||
-      draft?.supplement_summary?.trim() ||
-      draft?.emphasis_summary?.trim()
+      draft?.raw_lesson_note?.trim() ||
+      Object.values(draft?.qa_answers || {}).some((value) => String(value || '').trim())
   )
 }
 
@@ -663,11 +629,11 @@ function saveFeedbackDraft() {
   const draft = {
     feedback: { ...feedbackForm },
     feedback_panels: { ...feedbackPanels },
-    content_mode: classroomContentMode.value,
-    qa_answers: { ...qaAnswers },
-    supplement_summary: feedbackSupplement.value,
+    raw_lesson_note: rawLessonNote.value,
+    has_organized_lesson_note: hasOrganizedLessonNote.value,
+    raw_lesson_note_dirty: rawLessonNoteDirty.value,
+    missing_fields: [...organizeMissingFields.value],
     use_style_examples: useStyleExamplesForDraft.value,
-    material_analysis: materialAnalysis.value,
     updated_at: new Date().toISOString(),
   }
   try {
@@ -683,12 +649,19 @@ function applyFeedbackDraft(draft) {
   if (!draft?.feedback) return
   assignFeedback(feedbackForm, draft.feedback)
   Object.assign(feedbackPanels, defaultFeedbackPanels(), draft.feedback_panels || {})
-  Object.assign(qaAnswers, defaultQaAnswers(), draft.qa_answers || {})
-  classroomContentMode.value = draft.content_mode === 'free' ? 'free' : 'qa'
-  feedbackSupplement.value = draft.supplement_summary || draft.emphasis_summary || ''
+  Object.assign(legacyQaAnswers, defaultQaAnswers(), draft.qa_answers || {})
+  rawLessonNote.value = draft.raw_lesson_note || ''
+  hasOrganizedLessonNote.value = draft.has_organized_lesson_note === true
+  rawLessonNoteDirty.value = draft.raw_lesson_note_dirty === true
+  if (!rawLessonNote.value && Object.values(legacyQaAnswers).some((value) => String(value || '').trim())) {
+    FEEDBACK_CORE_FIELDS.forEach((field) => {
+      const legacyKey = field.formField.replace('_summary', '').replace('homework_plan', 'homework')
+      const value = legacyQaAnswers[legacyKey]
+      if (value && !feedbackForm[field.formField]) feedbackForm[field.formField] = qaAnswerToBullets(value)
+    })
+  }
+  organizeMissingFields.value = Array.isArray(draft.missing_fields) ? draft.missing_fields : []
   useStyleExamplesForDraft.value = draft.use_style_examples !== false
-  clearMaterialImages()
-  materialAnalysis.value = draft.material_analysis || null
   feedbackDraftStatus.value = '已恢复草稿'
   hasSavedFeedbackDraft.value = true
 }
@@ -708,7 +681,9 @@ function clearCurrentFeedbackDraft() {
 }
 
 function assignMonthly(target, source) {
-  target.feedback_month = source.feedback_month || currentMonth()
+  target.student_id = source.student_id || currentEveningStudent.value?.id || ''
+  target.period_type = source.period_type || 'month'
+  target.period_value = source.period_value || source.feedback_month || defaultPeriodValue(target.period_type)
   target.homework_summary = source.homework_summary || ''
   target.ai_draft = source.ai_draft || ''
   target.final_feedback = source.final_feedback || ''
@@ -716,6 +691,11 @@ function assignMonthly(target, source) {
 
 function resetMonthlyForm() {
   assignMonthly(monthlyForm, newMonthlyFeedback())
+}
+
+function setEveningFeedbackPeriodType(form, type) {
+  form.period_type = type
+  form.period_value = defaultPeriodValue(type)
 }
 
 function routeId(index = 2) {
@@ -752,7 +732,7 @@ async function register() {
     await handleRoute()
     maybeShowApiOnboarding()
   } catch (error) {
-    showMessage(error.message || 'AI 初稿生成失败，请检查模型配置后重试')
+    showMessage(error.message || 'AI 处理失败，请检查模型配置后重试')
   } finally {
     loading.value = false
   }
@@ -800,13 +780,6 @@ function applyAIPreset() {
   aiSettingsForm.model = preset.model
 }
 
-function applyVisionPreset() {
-  const preset = VISION_PRESETS[visionSettingsForm.provider]
-  if (!preset || visionSettingsForm.provider === 'custom') return
-  visionSettingsForm.base_url = preset.base_url
-  visionSettingsForm.model = preset.model
-}
-
 function assignAISettings(settings) {
   aiSettings.value = settings
   aiSettingsForm.provider = settings?.provider || 'deepseek'
@@ -816,23 +789,9 @@ function assignAISettings(settings) {
   aiSettingsForm.clear_api_key = false
 }
 
-function assignVisionSettings(settings) {
-  visionSettings.value = settings
-  visionSettingsForm.provider = settings?.provider || 'doubao_v'
-  visionSettingsForm.base_url = settings?.base_url || VISION_PRESETS.doubao_v.base_url
-  visionSettingsForm.model = settings?.model || VISION_PRESETS.doubao_v.model
-  visionSettingsForm.api_key = ''
-  visionSettingsForm.clear_api_key = false
-}
-
 async function loadAISettings() {
   const data = await request('/settings/ai')
   assignAISettings(data.settings)
-}
-
-async function loadVisionSettings() {
-  const data = await request('/settings/vision')
-  assignVisionSettings(data.settings)
 }
 
 async function loadStyleExamples() {
@@ -892,53 +851,6 @@ async function clearAIKey() {
   aiSettingsForm.api_key = ''
   aiSettingsForm.clear_api_key = true
   await saveAISettings()
-}
-
-async function saveVisionSettings() {
-  if (!visionSettingsForm.base_url.trim()) return showMessage('请填写图片识别模型的 Base URL')
-  if (!visionSettingsForm.model.trim()) return showMessage('请填写图片识别模型名')
-  loading.value = true
-  try {
-    const data = await request('/settings/vision', {
-      method: 'PUT',
-      body: JSON.stringify(visionSettingsForm),
-    })
-    assignVisionSettings(data.settings)
-    showMessage('图片识别模型配置已保存')
-  } catch (error) {
-    showMessage(error.message)
-  } finally {
-    loading.value = false
-  }
-}
-
-async function testVisionSettings() {
-  if (!visionSettingsForm.base_url.trim()) return showMessage('请填写图片识别模型的 Base URL')
-  if (!visionSettingsForm.model.trim()) return showMessage('请填写图片识别模型名')
-  loading.value = true
-  try {
-    const data = await request('/settings/vision/test', {
-      method: 'POST',
-      body: JSON.stringify({
-        provider: visionSettingsForm.provider,
-        base_url: visionSettingsForm.base_url,
-        model: visionSettingsForm.model,
-        api_key: visionSettingsForm.api_key,
-      }),
-    })
-    showMessage(data.message || '图片识别模型连接成功')
-  } catch (error) {
-    showMessage(error.message)
-  } finally {
-    loading.value = false
-  }
-}
-
-async function clearVisionKey() {
-  if (!window.confirm('确定清除已保存的图片识别模型 API Key 吗？清除后将无法识别课堂图片。')) return
-  visionSettingsForm.api_key = ''
-  visionSettingsForm.clear_api_key = true
-  await saveVisionSettings()
 }
 
 async function createStyleExampleFromForm(form, successMessage = '风格样例已保存') {
@@ -1080,8 +992,9 @@ function eveningFeedbackSearchQuery() {
   const params = new URLSearchParams()
   if (eveningFeedbackSearchForm.start_date) params.set('start_date', eveningFeedbackSearchForm.start_date)
   if (eveningFeedbackSearchForm.end_date) params.set('end_date', eveningFeedbackSearchForm.end_date)
+  if (eveningFeedbackSearchForm.period_type) params.set('period_type', eveningFeedbackSearchForm.period_type)
   const query = params.toString()
-  return query ? `/evening/monthly-feedbacks?${query}` : '/evening/monthly-feedbacks'
+  return query ? `/evening/feedbacks?${query}` : '/evening/feedbacks'
 }
 
 async function loadFeedbackSearchResults() {
@@ -1114,7 +1027,7 @@ async function loadEveningFeedbackSearchResults() {
 }
 
 async function resetEveningFeedbackSearch() {
-  Object.assign(eveningFeedbackSearchForm, defaultMonthlySearchRange())
+  Object.assign(eveningFeedbackSearchForm, defaultEveningSearchRange())
   await loadEveningFeedbackSearchResults()
 }
 
@@ -1226,19 +1139,9 @@ function closeFeedbackStyleModal() {
   showFeedbackStyleModal.value = false
 }
 
-async function openMaterialsModal() {
-  showMaterialsModal.value = true
-  await resizeAllTextareas()
-}
-
-function closeMaterialsModal() {
-  showMaterialsModal.value = false
-}
-
 function closeCreateFeedback() {
-  if ((hasFeedbackDraft(feedbackForm) || hasQaAnswers() || feedbackSupplement.value.trim()) && !window.confirm('这条反馈还没有保存，确定关闭吗？')) return
+  if ((hasFeedbackDraft(feedbackForm) || rawLessonNote.value.trim()) && !window.confirm('这条反馈还没有保存，确定关闭吗？')) return
   showFeedbackStyleModal.value = false
-  showMaterialsModal.value = false
   showWritingReference.value = false
   showCreateModal.value = false
   resetFeedbackForm()
@@ -1247,19 +1150,12 @@ function closeCreateFeedback() {
 function closeMonthlyModal() {
   if (
     (monthlyForm.homework_summary.trim() || monthlyForm.ai_draft.trim() || monthlyForm.final_feedback.trim()) &&
-    !window.confirm('这条月度反馈还没有保存，确定关闭吗？')
+    !window.confirm('这条晚辅反馈还没有保存，确定关闭吗？')
   ) {
     return
   }
   showMonthlyModal.value = false
   resetMonthlyForm()
-}
-
-function setClassroomContentMode(mode) {
-  classroomContentMode.value = mode
-  openFeedbackPanel('content')
-  resizeAllTextareas()
-  saveFeedbackDraft()
 }
 
 function normalizeQaAnswer(text) {
@@ -1272,236 +1168,6 @@ function normalizeQaAnswer(text) {
 function qaAnswerToBullets(text) {
   const lines = normalizeQaAnswer(text)
   return lines.map((line) => `- ${line}`).join('\n')
-}
-
-function appendMergedText(field, text) {
-  const value = String(text || '').trim()
-  if (!value) return
-  const current = String(feedbackForm[field] || '').trim()
-  if (current.includes(value)) return
-  feedbackForm[field] = [current, value].filter(Boolean).join('\n')
-}
-
-function qaFieldValue(field) {
-  return qaAnswerToBullets(qaAnswers[field.key]) || feedbackForm[field.formField]
-}
-
-function qaInputForGenerate() {
-  return QA_FIELDS.reduce((payload, field) => {
-    payload[field.formField] = qaFieldValue(field)
-    return payload
-  }, {})
-}
-
-function convertQaToFree() {
-  if (!hasQaAnswers()) return showMessage('请先填写问答内容')
-  QA_FIELDS.forEach((field) => {
-    appendMergedText(field.formField, qaAnswerToBullets(qaAnswers[field.key]))
-  })
-  classroomContentMode.value = 'free'
-  openFeedbackPanel('content')
-  resizeAllTextareas()
-  saveFeedbackDraft()
-  showMessage('已整理到自由模式，可继续修改完善')
-}
-
-function appendText(field, text) {
-  if (!text.trim()) return
-  feedbackForm[field] = [feedbackForm[field], text.trim()].filter(Boolean).join('\n')
-}
-
-function formatFileSize(size) {
-  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)}MB`
-  return `${Math.max(1, Math.round(size / 1024))}KB`
-}
-
-function clearMaterialInput() {
-  if (materialInput.value) materialInput.value.value = ''
-}
-
-function removeMaterialImage(index) {
-  const [removed] = materialImages.value.splice(index, 1)
-  if (removed?.preview_url) URL.revokeObjectURL(removed.preview_url)
-  materialAnalysis.value = null
-  clearMaterialInput()
-}
-
-function clearMaterialImages() {
-  materialImages.value.forEach((image) => {
-    if (image.preview_url) URL.revokeObjectURL(image.preview_url)
-  })
-  materialImages.value = []
-  materialAnalysis.value = null
-  clearMaterialInput()
-}
-
-function isPdfFile(file) {
-  return file.type === MATERIAL_PDF_TYPE || file.name.toLowerCase().endsWith('.pdf')
-}
-
-function isWordFile(file) {
-  const name = file.name.toLowerCase()
-  return (
-    name.endsWith('.doc') ||
-    name.endsWith('.docx') ||
-    file.type === 'application/msword' ||
-    file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-  )
-}
-
-function materialPageItem(file, source = '图片') {
-  return {
-    id: `${Date.now()}-${file.name}-${Math.random()}`,
-    file,
-    preview_url: URL.createObjectURL(file),
-    source,
-  }
-}
-
-function canvasToBlob(canvas) {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (blob) resolve(blob)
-      else reject(new Error('PDF 页面转换失败，请重试'))
-    }, 'image/png')
-  })
-}
-
-async function renderPdfPages(file, limit) {
-  if (file.size > MAX_MATERIAL_PDF_SIZE) {
-    showMessage(`${file.name} 超过 25MB，请压缩或拆分后上传`)
-    return []
-  }
-  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise
-  const pageCount = Math.min(pdf.numPages, limit)
-  const pages = []
-  const baseName = file.name.replace(/\.pdf$/i, '')
-
-  for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-    const page = await pdf.getPage(pageNumber)
-    const viewport = page.getViewport({ scale: 1 })
-    const scale = Math.min(2, Math.max(1.1, MAX_PDF_RENDER_WIDTH / viewport.width))
-    const scaledViewport = page.getViewport({ scale })
-    const canvas = document.createElement('canvas')
-    const context = canvas.getContext('2d')
-    canvas.width = Math.floor(scaledViewport.width)
-    canvas.height = Math.floor(scaledViewport.height)
-    await page.render({ canvasContext: context, viewport: scaledViewport }).promise
-    const blob = await canvasToBlob(canvas)
-    if (blob.size > MAX_MATERIAL_IMAGE_SIZE) {
-      showMessage(`${file.name} 第 ${pageNumber} 页转换后超过 8MB，已跳过`)
-      continue
-    }
-    const imageFile = new File([blob], `${baseName}-第${pageNumber}页.png`, { type: 'image/png' })
-    pages.push(materialPageItem(imageFile, `${file.name} 第 ${pageNumber} 页`))
-  }
-
-  if (pdf.numPages > limit) showMessage(`${file.name} 页数较多，已保留前 ${limit} 页`)
-  return pages
-}
-
-async function handleMaterialFiles(event) {
-  const files = Array.from(event.target.files || [])
-  if (!files.length) return
-  if (materialImages.value.length >= MAX_MATERIAL_IMAGES) {
-    showMessage(`一次最多上传 ${MAX_MATERIAL_IMAGES} 个课堂资料页面`)
-    clearMaterialInput()
-    return
-  }
-
-  const accepted = []
-  materialsConverting.value = true
-  try {
-    for (const file of files) {
-      const availableSlots = MAX_MATERIAL_IMAGES - materialImages.value.length - accepted.length
-      if (availableSlots <= 0) {
-        showMessage(`已保留前 ${MAX_MATERIAL_IMAGES} 个资料页面`)
-        break
-      }
-      if (isWordFile(file)) {
-        showMessage(`${file.name} 暂不支持直接上传，请先导出为 PDF 后上传`)
-        continue
-      }
-      if (isPdfFile(file)) {
-        accepted.push(...(await renderPdfPages(file, availableSlots)))
-        continue
-      }
-      if (!MATERIAL_IMAGE_TYPES.includes(file.type)) {
-        showMessage('只支持 JPG、PNG、WEBP 图片和 PDF 文件')
-        continue
-      }
-      if (file.size > MAX_MATERIAL_IMAGE_SIZE) {
-        showMessage(`${file.name} 超过 8MB，请压缩后再上传`)
-        continue
-      }
-      accepted.push(materialPageItem(file))
-    }
-  } catch (error) {
-    showMessage(error.message)
-  } finally {
-    materialsConverting.value = false
-    clearMaterialInput()
-  }
-
-  if (accepted.length) {
-    materialImages.value = [...materialImages.value, ...accepted]
-    materialAnalysis.value = null
-    saveFeedbackDraft()
-  }
-}
-
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const value = String(reader.result || '')
-      resolve(value.includes(',') ? value.split(',')[1] : value)
-    }
-    reader.onerror = () => reject(new Error(`${file.name} 读取失败，请重新选择`))
-    reader.readAsDataURL(file)
-  })
-}
-
-function clampMaterialsModalFrame() {
-  const minLeft = Math.min(8, MATERIALS_MODAL_VISIBLE_WIDTH - materialsModalFrame.width)
-  const maxLeft = Math.max(8, window.innerWidth - MATERIALS_MODAL_VISIBLE_WIDTH)
-  const minTop = Math.min(8, MATERIALS_MODAL_VISIBLE_HEIGHT - materialsModalFrame.height)
-  const maxTop = Math.max(8, window.innerHeight - MATERIALS_MODAL_VISIBLE_HEIGHT)
-  materialsModalFrame.left = Math.min(Math.max(minLeft, materialsModalFrame.left), maxLeft)
-  materialsModalFrame.top = Math.min(Math.max(minTop, materialsModalFrame.top), maxTop)
-}
-
-function startMaterialsModalMove(event, mode) {
-  if (event.button !== undefined && event.button !== 0) return
-  materialsModalDrag.active = true
-  materialsModalDrag.mode = mode
-  materialsModalDrag.startX = event.clientX
-  materialsModalDrag.startY = event.clientY
-  materialsModalDrag.startLeft = materialsModalFrame.left
-  materialsModalDrag.startTop = materialsModalFrame.top
-  materialsModalDrag.startWidth = materialsModalFrame.width
-  materialsModalDrag.startHeight = materialsModalFrame.height
-  window.addEventListener('pointermove', moveMaterialsModal)
-  window.addEventListener('pointerup', stopMaterialsModalMove, { once: true })
-}
-
-function moveMaterialsModal(event) {
-  if (!materialsModalDrag.active) return
-  const deltaX = event.clientX - materialsModalDrag.startX
-  const deltaY = event.clientY - materialsModalDrag.startY
-  if (materialsModalDrag.mode === 'move') {
-    materialsModalFrame.left = materialsModalDrag.startLeft + deltaX
-    materialsModalFrame.top = materialsModalDrag.startTop + deltaY
-  } else {
-    materialsModalFrame.width = Math.min(window.innerWidth - 16, Math.max(520, materialsModalDrag.startWidth + deltaX))
-    materialsModalFrame.height = Math.min(window.innerHeight - 16, Math.max(430, materialsModalDrag.startHeight + deltaY))
-  }
-  clampMaterialsModalFrame()
-}
-
-function stopMaterialsModalMove() {
-  materialsModalDrag.active = false
-  window.removeEventListener('pointermove', moveMaterialsModal)
 }
 
 function clampWritingReferenceFrame() {
@@ -1551,64 +1217,79 @@ function stopWritingReferenceMove() {
   window.removeEventListener('pointermove', moveWritingReference)
 }
 
-async function analyzeMaterialImages() {
-  if (!materialImages.value.length) return showMessage('请先选择课堂资料')
-  materialsAnalyzing.value = true
+function isFieldMissing(field) {
+  return blockingMissingFields.value.includes(field)
+}
+
+function fieldSupplementPrompt(field) {
+  if (field === 'advice_summary') return '老师希望学生课后怎么做？请写你的真实建议方向。'
+  if (field === 'homework_plan') return '本次实际布置了什么任务？没有作业请写“无”或“本次无额外作业”。'
+  if (field === 'performance_summary') return '学生这节课表现和掌握情况如何？写状态、做题情况、掌握好的地方或卡住的地方。'
+  return '本节课主要学了什么？写知识点、题型、方法或练习内容。'
+}
+
+function handleRawLessonNoteInput(event) {
+  autoResize(event)
+  if (hasOrganizedLessonNote.value) rawLessonNoteDirty.value = true
+}
+
+function clearOrganizedMissingField(field) {
+  if (!String(feedbackForm[field] || '').trim()) return
+  organizeMissingFields.value = organizeMissingFields.value.filter((item) => item !== field)
+  saveFeedbackDraft()
+}
+
+async function organizeLessonNote() {
+  if (!feedbackForm.lesson_title.trim()) return showMessage('请填写反馈标题')
+  if (
+    !rawLessonNote.value.trim() &&
+    !feedbackForm.lesson_summary.trim() &&
+    !feedbackForm.performance_summary.trim() &&
+    !feedbackForm.advice_summary.trim() &&
+    !feedbackForm.homework_plan.trim()
+  ) {
+    return showMessage('请先写本节课原始记录')
+  }
+  loading.value = true
   try {
-    const images = await Promise.all(
-      materialImages.value.map(async (item) => ({
-        name: item.file.name,
-        mime_type: item.file.type,
-        data_base64: await fileToBase64(item.file),
-      }))
-    )
-    materialAnalysis.value = await request(`/students/${currentStudent.value.id}/feedbacks/materials/analyze`, {
+    const data = await request(`/students/${currentStudent.value.id}/feedbacks/organize`, {
       method: 'POST',
       body: JSON.stringify({
+        lesson_time: feedbackForm.lesson_time,
         lesson_title: titleForGenerate(feedbackForm.lesson_title, feedbackForm.lesson_time),
-        subject: currentStudent.value?.subject || '',
-        images,
+        raw_lesson_note: rawLessonNote.value,
+        lesson_summary: feedbackForm.lesson_summary,
+        performance_summary: feedbackForm.performance_summary,
+        advice_summary: feedbackForm.advice_summary,
+        homework_plan: feedbackForm.homework_plan,
       }),
     })
+    feedbackForm.lesson_summary = data.lesson_summary || ''
+    feedbackForm.performance_summary = data.performance_summary || ''
+    feedbackForm.advice_summary = data.advice_summary || ''
+    feedbackForm.homework_plan = data.homework_plan || ''
+    organizeMissingFields.value = Array.isArray(data.missing_fields) ? data.missing_fields : []
+    hasOrganizedLessonNote.value = true
+    rawLessonNoteDirty.value = false
+    openFeedbackPanel('content')
+    await resizeAllTextareas()
     saveFeedbackDraft()
-    showMessage('课堂资料已识别完成')
+    showMessage(organizeMissingFields.value.length ? `还需补充：${missingFieldText.value}` : '课堂记录已整理完整，可以生成反馈')
   } catch (error) {
     showMessage(error.message)
   } finally {
-    materialsAnalyzing.value = false
+    loading.value = false
   }
-}
-
-function applyMaterialAnalysis() {
-  const suggestion = materialAnalysis.value?.lesson_summary_suggestion || ''
-  if (!suggestion.trim()) return showMessage('暂无可填入的课堂学习内容')
-  appendText('lesson_summary', suggestion)
-  if (classroomContentMode.value === 'qa') {
-    qaAnswers.lesson = [qaAnswers.lesson, suggestion.trim()].filter(Boolean).join('\n')
-  }
-  openFeedbackPanel('content')
-  resizeAllTextareas()
-  saveFeedbackDraft()
-  showMessage('已填入课堂学习内容，可继续修改')
 }
 
 async function generateDraft() {
   if (!feedbackForm.lesson_title.trim()) return showMessage('请填写反馈标题')
-  const contentPayload = classroomContentMode.value === 'qa' ? qaInputForGenerate() : {
+  if (!canGenerateFeedback.value) return showMessage(`请先补充：${missingFieldText.value}`)
+  const contentPayload = {
     lesson_summary: feedbackForm.lesson_summary,
     performance_summary: feedbackForm.performance_summary,
     advice_summary: feedbackForm.advice_summary,
     homework_plan: feedbackForm.homework_plan,
-  }
-  if (classroomContentMode.value === 'qa') {
-    const missingQuestion = QA_FIELDS.find((field) => !qaAnswers[field.key]?.trim())
-    if (missingQuestion) return showMessage(`请先填写：${missingQuestion.title}`)
-  }
-  if (!contentPayload.lesson_summary.trim()) return showMessage('请填写课堂学习内容')
-  if (classroomContentMode.value === 'qa') {
-    QA_FIELDS.forEach((field) => {
-      feedbackForm[field.formField] = contentPayload[field.formField]
-    })
   }
   loading.value = true
   try {
@@ -1618,18 +1299,16 @@ async function generateDraft() {
         lesson_time: feedbackForm.lesson_time,
         lesson_title: titleForGenerate(feedbackForm.lesson_title, feedbackForm.lesson_time),
         ...contentPayload,
-        supplement_summary: feedbackSupplement.value,
         use_style_examples: useStyleExamplesForDraft.value,
       }),
     })
     feedbackForm.ai_draft = data.draft
     feedbackForm.final_feedback = data.draft
     feedbackForm.lesson_title = titleForGenerate(feedbackForm.lesson_title, feedbackForm.lesson_time)
-    feedbackPanels.draft = true
     feedbackPanels.final = true
     await resizeAllTextareas()
     saveFeedbackDraft()
-    showMessage('AI 初稿已生成')
+    showMessage('反馈已生成，可直接修改或复制')
   } catch (error) {
     showMessage(error.message)
   } finally {
@@ -1639,12 +1318,6 @@ async function generateDraft() {
 
 async function saveFeedback() {
   if (!feedbackForm.final_feedback.trim()) return showMessage('请先生成或填写反馈内容')
-  if (classroomContentMode.value === 'qa' && hasQaAnswers()) {
-    const contentPayload = qaInputForGenerate()
-    QA_FIELDS.forEach((field) => {
-      feedbackForm[field.formField] = contentPayload[field.formField]
-    })
-  }
   loading.value = true
   try {
     feedbackForm.lesson_title = titleForGenerate(feedbackForm.lesson_title, feedbackForm.lesson_time)
@@ -1824,7 +1497,7 @@ async function createClassFromList() {
 }
 
 async function deleteClass() {
-  if (!window.confirm('确定删除该晚辅班级吗？班级学生和月度反馈也会删除，且无法恢复。')) return
+  if (!window.confirm('确定删除该晚辅班级吗？班级学生和晚辅反馈也会删除，且无法恢复。')) return
   loading.value = true
   try {
     await request(`/evening/classes/${currentClass.value.id}`, { method: 'DELETE' })
@@ -1930,7 +1603,7 @@ async function loadEveningStudentContext() {
   const id = route.value.split('/')[3]
   const [studentData, feedbackData] = await Promise.all([
     request(`/evening/students/${id}`),
-    request(`/evening/students/${id}/monthly-feedbacks`),
+    request(`/evening/students/${id}/feedbacks`),
   ])
   currentEveningStudent.value = studentData.student
   eveningFeedbacks.value = feedbackData.feedbacks
@@ -1963,7 +1636,7 @@ async function saveEveningStudentEdit() {
 }
 
 async function deleteEveningStudent() {
-  if (!window.confirm('确定删除该晚辅学生吗？该学生月度反馈也会删除，且无法恢复。')) return
+  if (!window.confirm('确定删除该晚辅学生吗？该学生晚辅反馈也会删除，且无法恢复。')) return
   loading.value = true
   try {
     await request(`/evening/students/${currentEveningStudent.value.id}`, { method: 'DELETE' })
@@ -1977,20 +1650,27 @@ async function deleteEveningStudent() {
   }
 }
 
-function openMonthlyModal() {
+function openMonthlyModal(student = null) {
   resetMonthlyForm()
+  const selectedStudent = student || currentEveningStudent.value || eveningStudents.value[0]
+  monthlyForm.student_id = selectedStudent?.id || ''
   showMonthlyModal.value = true
   resizeAllTextareas()
 }
 
 async function generateMonthlyDraft() {
-  if (!monthlyForm.homework_summary.trim()) return showMessage('请填写本月作业完成情况简述')
+  if (!monthlyForm.student_id) return showMessage('请选择晚辅学生')
+  if (!monthlyForm.period_value) return showMessage('请选择反馈时间')
+  if (!monthlyForm.homework_summary.trim()) return showMessage('请填写作业完成情况简述')
   loading.value = true
   try {
-    const data = await request(`/evening/students/${currentEveningStudent.value.id}/monthly-feedbacks/generate`, {
+    const classId = currentClass.value?.id || currentEveningStudent.value?.class_id
+    const data = await request(`/evening/classes/${classId}/feedbacks/generate`, {
       method: 'POST',
       body: JSON.stringify({
-        feedback_month: monthlyForm.feedback_month,
+        student_id: Number(monthlyForm.student_id),
+        period_type: monthlyForm.period_type,
+        period_value: monthlyForm.period_value,
         homework_summary: monthlyForm.homework_summary,
       }),
     })
@@ -2006,16 +1686,26 @@ async function generateMonthlyDraft() {
 }
 
 async function saveMonthlyFeedback() {
+  if (!monthlyForm.student_id) return showMessage('请选择晚辅学生')
+  if (!monthlyForm.period_value) return showMessage('请选择反馈时间')
   if (!monthlyForm.final_feedback.trim()) return showMessage('请先生成或填写反馈内容')
   loading.value = true
   try {
-    await request(`/evening/students/${currentEveningStudent.value.id}/monthly-feedbacks`, {
+    const classId = currentClass.value?.id || currentEveningStudent.value?.class_id
+    await request(`/evening/classes/${classId}/feedbacks`, {
       method: 'POST',
-      body: JSON.stringify(monthlyForm),
+      body: JSON.stringify({
+        ...monthlyForm,
+        student_id: Number(monthlyForm.student_id),
+      }),
     })
     showMonthlyModal.value = false
-    await loadEveningStudentContext()
-    showMessage('月度反馈已保存')
+    if (currentView.value === 'evening-student') {
+      await loadEveningStudentContext()
+    } else if (currentView.value === 'evening-class') {
+      await loadEveningClassContext()
+    }
+    showMessage('晚辅反馈已保存')
   } catch (error) {
     showMessage(error.message)
   } finally {
@@ -2031,16 +1721,22 @@ function openEveningDetail(feedback) {
 }
 
 async function saveEveningDetailEdit() {
+  if (!monthlyEditForm.student_id) return showMessage('请选择晚辅学生')
+  if (!monthlyEditForm.period_value) return showMessage('请选择反馈时间')
   loading.value = true
   try {
-    const data = await request(`/evening/monthly-feedbacks/${eveningDetail.value.id}`, {
+    const data = await request(`/evening/feedbacks/${eveningDetail.value.id}`, {
       method: 'PUT',
-      body: JSON.stringify(monthlyEditForm),
+      body: JSON.stringify({
+        ...monthlyEditForm,
+        student_id: Number(monthlyEditForm.student_id),
+      }),
     })
     eveningDetail.value = data.feedback
     isEditingEveningDetail.value = false
-    await loadEveningStudentContext()
-    showMessage('月度反馈已更新')
+    if (currentView.value === 'evening-student') await loadEveningStudentContext()
+    if (currentView.value === 'evening-feedback-search') await loadEveningFeedbackSearchResults()
+    showMessage('晚辅反馈已更新')
   } catch (error) {
     showMessage(error.message)
   } finally {
@@ -2049,13 +1745,14 @@ async function saveEveningDetailEdit() {
 }
 
 async function deleteEveningFeedback() {
-  if (!window.confirm('确定删除这条月度反馈吗？删除后无法恢复。')) return
+  if (!window.confirm('确定删除这条晚辅反馈吗？删除后无法恢复。')) return
   loading.value = true
   try {
-    await request(`/evening/monthly-feedbacks/${eveningDetail.value.id}`, { method: 'DELETE' })
+    await request(`/evening/feedbacks/${eveningDetail.value.id}`, { method: 'DELETE' })
     eveningDetail.value = null
-    await loadEveningStudentContext()
-    showMessage('月度反馈已删除')
+    if (currentView.value === 'evening-student') await loadEveningStudentContext()
+    if (currentView.value === 'evening-feedback-search') await loadEveningFeedbackSearchResults()
+    showMessage('晚辅反馈已删除')
   } catch (error) {
     showMessage(error.message)
   } finally {
@@ -2082,7 +1779,6 @@ async function handleRoute() {
     if (currentView.value === 'evening-student') await loadEveningStudentContext()
     if (currentView.value === 'settings') {
       await loadAISettings()
-      await loadVisionSettings()
       await loadStyleExamples()
     }
   } catch (error) {
@@ -2111,7 +1807,7 @@ onMounted(async () => {
         <div class="auth-copy">
           <p class="eyebrow">Teacher Assistant</p>
           <h1>教师工作记录助手</h1>
-          <p>把一对一课后反馈和晚辅月度作业反馈，整理进一个清晰、温暖、好维护的工作台。</p>
+          <p>把一对一课后反馈和晚辅反馈，整理进一个清晰、温暖、好维护的工作台。</p>
           <div class="doodle-row" aria-hidden="true"><span>✎</span><span>▤</span><span>♡</span><span>☆</span></div>
         </div>
         <div class="auth-art-panel" aria-hidden="true">
@@ -2242,18 +1938,19 @@ onMounted(async () => {
               <h3>按时间查找晚辅反馈</h3>
               <small>{{ searchRangeLabel(eveningFeedbackSearchForm.start_date, eveningFeedbackSearchForm.end_date) }} · {{ eveningFeedbackSearchResults.length }} 条结果</small>
             </div>
-            <label>开始月份<input v-model="eveningFeedbackSearchForm.start_date" type="month" /></label>
-            <label>结束月份<input v-model="eveningFeedbackSearchForm.end_date" type="month" /></label>
+            <label>反馈类型<select v-model="eveningFeedbackSearchForm.period_type"><option value="">全部</option><option v-for="type in EVENING_PERIOD_TYPES" :key="type.value" :value="type.value">{{ type.label }}</option></select></label>
+            <label>开始日期<input v-model="eveningFeedbackSearchForm.start_date" type="date" /></label>
+            <label>结束日期<input v-model="eveningFeedbackSearchForm.end_date" type="date" /></label>
             <div class="button-row">
               <button class="primary-btn" :disabled="loading">查询</button>
-              <button type="button" class="ghost-btn" :disabled="loading" @click="resetEveningFeedbackSearch">最近 3 个月</button>
-              <button type="button" class="ghost-btn" :disabled="loading" @click="eveningFeedbackSearchForm.start_date = ''; eveningFeedbackSearchForm.end_date = ''; loadEveningFeedbackSearchResults()">清空</button>
+              <button type="button" class="ghost-btn" :disabled="loading" @click="resetEveningFeedbackSearch">最近 90 天</button>
+              <button type="button" class="ghost-btn" :disabled="loading" @click="eveningFeedbackSearchForm.start_date = ''; eveningFeedbackSearchForm.end_date = ''; eveningFeedbackSearchForm.period_type = ''; loadEveningFeedbackSearchResults()">清空</button>
             </div>
           </form>
           <div class="history-list">
             <button v-for="feedback in eveningFeedbackSearchResults" :key="feedback.id" class="history-card" type="button" @click="openEveningDetail(feedback)">
-              <strong>{{ feedback.student_name }} · {{ feedback.feedback_month }}</strong>
-              <span>{{ feedback.class_name }} · {{ feedback.grade || '未填年级' }} · {{ feedback.school || '未填学校' }}</span>
+              <strong>{{ feedback.student_name }} · {{ feedback.period_label }}</strong>
+              <span>{{ periodTypeLabel(feedback.period_type) }} · {{ feedback.class_name }} · {{ feedback.grade || '未填年级' }} · {{ feedback.school || '未填学校' }}</span>
               <small>{{ shortText(feedback.homework_summary, 86) }}</small>
               <small>{{ shortText(feedback.final_feedback, 130) }}</small>
             </button>
@@ -2342,7 +2039,7 @@ onMounted(async () => {
               <input v-model="classForm.name" placeholder="班级名称，例如 初三晚辅" />
               <button class="primary-btn" :disabled="loading">新建班级</button>
             </form>
-            <button class="side-tool-card" type="button" @click="go('#/evening/feedbacks')"><strong>反馈查询</strong><small>按时间查看晚辅月度反馈</small><span>查看 →</span></button>
+            <button class="side-tool-card" type="button" @click="go('#/evening/feedbacks')"><strong>反馈查询</strong><small>按时间查看晚辅反馈</small><span>查看 →</span></button>
           </div>
           <div class="student-list">
             <article v-for="cls in eveningClasses" :key="cls.id" class="student-card" @click="go(`#/evening/classes/${cls.id}`)">
@@ -2360,12 +2057,12 @@ onMounted(async () => {
             <h3>{{ currentClass.name }}</h3><small>{{ eveningStudents.length }} 名学生</small>
             <div class="button-row"><button class="ghost-btn" @click="openClassModal(currentClass)">编辑班级</button><button class="danger-btn" @click="deleteClass">删除班级</button></div>
           </div>
-          <div class="button-row"><button class="primary-btn" @click="showBulkModal = true; resizeAllTextareas()">批量录入学生</button></div>
+          <div class="button-row"><button class="primary-btn" @click="openMonthlyModal()">新增晚辅反馈</button><button class="ghost-btn" @click="showBulkModal = true; resizeAllTextareas()">批量录入学生</button></div>
           <div class="student-list">
             <article v-for="student in eveningStudents" :key="student.id" class="student-card" @click="go(`#/evening/students/${student.id}`)">
               <img class="card-sticker" :src="eveningStickerArt" alt="" aria-hidden="true" />
               <span class="avatar">{{ student.name.slice(0, 1) }}</span><h3>{{ student.name }}</h3>
-              <p>{{ student.grade || '未填年级' }} · {{ student.school || '未填学校' }}</p><small>{{ student.feedback_count }} 条月度反馈</small>
+              <p>{{ student.grade || '未填年级' }} · {{ student.school || '未填学校' }}</p><small>{{ student.feedback_count }} 条晚辅反馈</small>
             </article>
             <div v-if="!eveningStudents.length" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>这个班级还没有学生。</span></div>
           </div>
@@ -2374,13 +2071,13 @@ onMounted(async () => {
         <section v-if="currentView === 'evening-student' && currentEveningStudent" class="history-page">
           <div class="paper-card profile-card">
             <h3>{{ currentEveningStudent.name }}</h3><p>{{ currentEveningStudent.grade || '未填年级' }} · {{ currentEveningStudent.school || '未填学校' }}</p>
-            <div class="button-row"><button class="ghost-btn" @click="openEveningStudentEdit">编辑学生信息</button><button class="primary-btn" @click="openMonthlyModal">新增月度反馈</button></div>
+            <div class="button-row"><button class="ghost-btn" @click="openEveningStudentEdit">编辑学生信息</button><button class="primary-btn" @click="openMonthlyModal(currentEveningStudent)">新增晚辅反馈</button></div>
           </div>
           <div class="history-list">
             <button v-for="feedback in eveningFeedbacks" :key="feedback.id" class="history-card" @click="openEveningDetail(feedback)">
-              <strong>{{ feedback.feedback_month }}</strong><span>{{ shortText(feedback.homework_summary, 72) }}</span><small>{{ shortText(feedback.final_feedback, 120) }}</small>
+              <strong>{{ feedback.period_label }}</strong><span>{{ periodTypeLabel(feedback.period_type) }} · {{ shortText(feedback.homework_summary, 72) }}</span><small>{{ shortText(feedback.final_feedback, 120) }}</small>
             </button>
-            <div v-if="!eveningFeedbacks.length" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>暂无月度反馈。</span></div>
+            <div v-if="!eveningFeedbacks.length" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>暂无晚辅反馈。</span></div>
           </div>
         </section>
 
@@ -2434,61 +2131,6 @@ onMounted(async () => {
                 </div>
                 <button type="button" class="danger-btn" :disabled="loading || !aiSettings?.has_api_key" @click="clearAIKey">清除 API Key</button>
               </div>
-            </div>
-          </form>
-
-          <form class="paper-card settings-card vision-settings-card" :class="{ collapsed: !settingsPanels.vision_ai }" @submit.prevent="saveVisionSettings">
-            <button class="settings-accordion-header" type="button" @click="toggleSettingsPanel('vision_ai')">
-              <span>
-                <span class="eyebrow">Image Recognition</span>
-                <strong>图片识别模型配置（视觉模型）</strong>
-                <small>用于识别课堂讲义、板书、作业、错题照片，并提炼知识点和易错点。</small>
-              </span>
-              <span class="settings-header-side">
-                <span class="settings-pill" :class="{ ok: visionSettings?.has_api_key }">{{ visionSettings?.has_api_key ? `已配置：${visionSettings.model}` : '可选 · 未配置' }}</span>
-                <span class="settings-caret">{{ settingsPanels.vision_ai ? '收起' : '展开' }}</span>
-              </span>
-            </button>
-
-            <div v-show="settingsPanels.vision_ai" class="settings-panel-body">
-              <p class="settings-hint">视觉模型就是能看懂图片的 AI 模型。普通文本反馈模型可以写反馈，但图片识别这里需要填写支持图片输入的模型。</p>
-
-              <label>推荐模型
-                <select v-model="visionSettingsForm.provider" @change="applyVisionPreset">
-                  <option v-for="(preset, key) in VISION_PRESETS" :key="key" :value="key">{{ preset.label }}</option>
-                </select>
-                <small>{{ selectedVisionPreset.hint }}</small>
-              </label>
-              <div class="preset-link-row">
-                <a v-if="selectedVisionPreset.api_key_url" :href="selectedVisionPreset.api_key_url" target="_blank" rel="noreferrer">获取 API Key</a>
-                <a v-if="selectedVisionPreset.docs_url" :href="selectedVisionPreset.docs_url" target="_blank" rel="noreferrer">查看接入文档</a>
-              </div>
-
-              <label>Base URL
-                <input v-model="visionSettingsForm.base_url" placeholder="https://ark.cn-beijing.volces.com/api/v3" />
-                <small>模型平台的 OpenAI-compatible 多模态接口地址。豆包常用 https://ark.cn-beijing.volces.com/api/v3。</small>
-              </label>
-
-              <label>模型名
-                <input v-model="visionSettingsForm.model" placeholder="doubao-1.5-vision-pro-32k" />
-                <small>示例：doubao-1.5-vision-pro-32k、ep-...、qwen3-vl-plus、qwen-vl-ocr-latest、kimi-k2.5、glm-4.6v-flash。</small>
-              </label>
-
-              <label>API Key
-                <input v-model="visionSettingsForm.api_key" type="password" :placeholder="visionSettings?.has_api_key ? '已配置，留空则保留原 Key' : '粘贴图片识别模型的 API Key'" autocomplete="off" />
-                <small>{{ visionSettings?.has_api_key ? '当前账号已有图片识别模型 API Key。填写新 Key 会覆盖旧 Key。' : '还没有保存图片识别模型 API Key，识别课堂图片前需要先配置。' }}</small>
-              </label>
-
-              <p v-if="visionSettingsForm.provider === 'deepseek'" class="settings-warning">DeepSeek 常用于文本生成；请确认当前模型是否支持图片输入。课堂资料识别需要视觉/多模态模型。</p>
-
-              <div class="button-row danger-row">
-                <div class="button-row">
-                  <button type="button" class="ghost-btn" :disabled="loading" @click="testVisionSettings">测试视觉连接</button>
-                  <button class="primary-btn" :disabled="loading">保存图片识别配置</button>
-                </div>
-                <button type="button" class="danger-btn" :disabled="loading || !visionSettings?.has_api_key" @click="clearVisionKey">清除 API Key</button>
-              </div>
-              <p class="settings-hint">测试会发送一张内置示例图片给模型，只用于确认它能读取图片，不会保存。</p>
             </div>
           </form>
 
@@ -2560,18 +2202,14 @@ onMounted(async () => {
           </div>
           <button type="button" class="icon-btn" @click="closeApiOnboarding">×</button>
         </div>
-        <p class="settings-hint">老师要使用“生成 AI 初稿”和课堂图片识别，需要先到设置页填写自己的模型 API Key。配置只保存在当前老师账号下，API Key 会加密保存。</p>
+        <p class="settings-hint">老师要使用课堂记录整理和反馈生成，需要先到设置页填写自己的模型 API Key。配置只保存在当前老师账号下，API Key 会加密保存。</p>
         <div class="guide-step-list">
           <article>
             <strong>1. 反馈生成模型是必配项</strong>
-            <span>它负责根据课堂内容、学生表现、课后建议和作业安排，生成课后反馈初稿。</span>
+            <span>它负责把老师的原始课堂记录整理成四大板块，并生成课后反馈正文。</span>
           </article>
           <article>
-            <strong>2. 图片识别模型是可选增强项</strong>
-            <span>如果你想上传讲义、作业或错题照片来提炼课堂内容，再配置支持图片输入的视觉模型。</span>
-          </article>
-          <article>
-            <strong>3. 个人风格样例可稍后补充</strong>
+            <strong>2. 个人风格样例可稍后补充</strong>
             <span>没有启用样例时按标准四段结构生成；启用样例后，AI 会更贴近你的表达习惯。</span>
           </article>
         </div>
@@ -2609,7 +2247,7 @@ onMounted(async () => {
 
         <form v-else class="feedback-editor" @submit.prevent="saveStyleExampleEdit">
           <label>样例标题
-            <input v-model="styleExampleEditForm.title" placeholder="例如：晨钰第3次数学课（4.26）" />
+            <input v-model="styleExampleEditForm.title" placeholder="例如：某学生第3次数学课（4.26）" />
             <small>标题只用于管理样例，不参与 AI 学习。</small>
           </label>
           <label>反馈样例
@@ -2640,14 +2278,10 @@ onMounted(async () => {
         <div class="guide-step-list">
           <article>
             <strong>1. 先配置反馈生成模型</strong>
-            <span>这是生成课后反馈初稿的核心配置。优先完成它，后面就能在学生页面生成反馈。</span>
+            <span>这是整理课堂记录和生成课后反馈的核心配置。优先完成它，后面就能在学生页面生成反馈。</span>
           </article>
           <article>
-            <strong>2. 按需配置图片识别模型</strong>
-            <span>它只负责看图片、提炼课堂资料。不需要上传图片识别时，可以先跳过。</span>
-          </article>
-          <article>
-            <strong>3. 可选配置个人风格样例</strong>
+            <strong>2. 可选配置个人风格样例</strong>
             <span>添加是保存样例，启用才会参与生成。没有启用样例时，反馈会按标准四段结构输出。</span>
           </article>
         </div>
@@ -2682,55 +2316,38 @@ onMounted(async () => {
             <button type="button" class="ghost-btn" :disabled="loading" @click="openFeedbackStyleModal">{{ styleExamples.length ? '管理个人风格' : '个人风格' }}</button>
           </div>
         </section>
-        <section class="feedback-style-entry materials-entry">
-          <div>
-            <strong>课堂资料</strong>
-            <small>{{ materialStatus }}</small>
-            <small>可选。只有需要从图片/PDF提取课堂内容时再用；会调用能看图片的 AI，消耗更多额度/次数。</small>
-          </div>
-          <button type="button" class="ghost-btn" :disabled="loading" @click="openMaterialsModal">导入课堂资料</button>
-        </section>
         <section class="feedback-panel classroom-content-panel" :class="{ collapsed: !feedbackPanels.content }">
           <div class="feedback-panel-header feedback-panel-header-actions">
-            <button class="feedback-panel-toggle" type="button" @click="toggleFeedbackPanel('content')"><strong>课堂内容填写</strong><span>{{ feedbackPanels.content ? '收起' : '展开' }}</span></button>
+            <button class="feedback-panel-toggle" type="button" @click="toggleFeedbackPanel('content')"><strong>课堂记录整理</strong><span>{{ feedbackPanels.content ? '收起' : '展开' }}</span></button>
             <button type="button" class="ghost-btn reference-toggle-btn" @click="toggleWritingReference">{{ showWritingReference ? '收起参考' : '填写参考' }}</button>
           </div>
           <div v-show="feedbackPanels.content" class="feedback-panel-body">
-            <div class="mode-switch" role="tablist" aria-label="课堂内容填写模式">
-              <button v-for="mode in CLASSROOM_CONTENT_MODES" :key="mode.value" type="button" :class="{ active: classroomContentMode === mode.value }" @click="setClassroomContentMode(mode.value)">{{ mode.label }}</button>
-            </div>
-
-            <div v-if="classroomContentMode === 'qa'" class="qa-mode-panel">
-              <label v-for="field in QA_FIELDS" :key="field.key" class="qa-question">
-                <span>{{ field.title }}</span>
-                <textarea v-model="qaAnswers[field.key]" class="auto-textarea" :placeholder="field.placeholder" @input="autoResize"></textarea>
-              </label>
+            <div class="qa-mode-panel quick-note-panel">
               <label class="qa-question">
-                <span>5. 还有什么想补充的吗？</span>
-                <small>可选。忘了写、暂时不知道放哪一栏的信息可以填在这里；没有可不填。</small>
-                <textarea v-model="feedbackSupplement" class="auto-textarea" placeholder="可选。写漏掉的事实、下节课安排、需带资料等；没有可不填。" @input="autoResize"></textarea>
+                <span>本节课原始记录</span>
+                <small>随便写：讲了什么、学生表现、哪里需要注意、布置了什么作业。建议和作业最好分开写，例如“建议：……；作业：……”。AI 会先整理分类，不会直接生成最终反馈。</small>
+                <textarea v-model="rawLessonNote" class="auto-textarea large-text" placeholder="例如：今天讲了一次函数图像和解析式，图像题还可以，应用题找等量关系有点卡。建议：回去复盘今天错题。作业：完成讲义 3-5 题。" @input="handleRawLessonNoteInput"></textarea>
               </label>
-              <div class="button-row classroom-generate-row">
-                <button type="button" class="ghost-btn" :disabled="loading" @click="convertQaToFree">转为自由编辑</button>
-                <button type="button" class="primary-btn" :disabled="loading" @click="generateDraft">生成 AI 初稿</button>
+              <p v-if="hasOrganizedLessonNote && rawLessonNoteDirty" class="settings-warning">原始记录已修改，建议重新整理后再生成。</p>
+              <div v-if="hasOrganizedLessonNote" class="organized-field-grid">
+                <label v-for="field in FEEDBACK_CORE_FIELDS" :key="field.formField" :class="{ 'field-missing': isFieldMissing(field.formField) }">
+                  <span>{{ field.title }}</span>
+                  <small v-if="isFieldMissing(field.formField)">{{ fieldSupplementPrompt(field.formField) }}</small>
+                  <textarea v-model="feedbackForm[field.formField]" class="auto-textarea" :placeholder="field.placeholder" @input="autoResize($event); clearOrganizedMissingField(field.formField)"></textarea>
+                </label>
               </div>
-            </div>
-
-            <div v-else class="free-mode-panel">
-              <label>1. 课堂学习内容<textarea v-model="feedbackForm.lesson_summary" class="auto-textarea" placeholder="写本节课学习、复习或检测的知识点、题型、方法和练习内容" @input="autoResize"></textarea></label>
-              <label>2. 课堂表现与知识掌握情况<textarea v-model="feedbackForm.performance_summary" class="auto-textarea" placeholder="写上课状态、练习完成情况、掌握得好的地方和还不熟的知识点" @input="autoResize"></textarea></label>
-              <label>3. 课后建议<textarea v-model="feedbackForm.advice_summary" class="auto-textarea" placeholder="写学生需要改进、注意或继续巩固的地方，尽量对应课堂问题" @input="autoResize"></textarea></label>
-              <label>4. 作业安排<textarea v-model="feedbackForm.homework_plan" class="auto-textarea" placeholder="严格写本次实际布置的作业，不额外新增内容" @input="autoResize"></textarea></label>
-              <label>内容补充<textarea v-model="feedbackSupplement" class="auto-textarea" placeholder="可选。写漏掉的事实、下节课安排、需带资料等；AI 会归类合并，不是强调指令" @input="autoResize"></textarea></label>
-              <div class="button-row classroom-generate-row">
-                <button type="button" class="primary-btn" :disabled="loading" @click="generateDraft">生成 AI 初稿</button>
+              <p v-if="hasOrganizedLessonNote && blockingMissingFields.length" class="settings-warning">还需补充：{{ missingFieldText }}。四大板块齐全后才能生成反馈。</p>
+              <p v-if="hasOrganizedLessonNote && canGenerateFeedback" class="settings-hint">四大板块已整理完整，请确认内容无误后生成反馈。</p>
+              <div class="button-row classroom-generate-row danger-row">
+                <button type="button" class="ghost-btn" :disabled="loading" @click="organizeLessonNote">{{ hasOrganizedLessonNote ? '重新整理' : '整理课堂记录' }}</button>
+                <button v-if="hasOrganizedLessonNote" type="button" class="primary-btn" :disabled="loading || !canGenerateFeedback" @click="generateDraft">生成反馈</button>
               </div>
             </div>
           </div>
         </section>
 
         <section class="feedback-panel" :class="{ collapsed: !feedbackPanels.draft }">
-          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('draft')"><strong>AI 初稿</strong><span>{{ feedbackPanels.draft ? '收起' : '展开' }}</span></button>
+          <button class="feedback-panel-header" type="button" @click="toggleFeedbackPanel('draft')"><strong>查看 AI 初稿</strong><span>{{ feedbackPanels.draft ? '收起' : '展开' }}</span></button>
           <label v-show="feedbackPanels.draft"><textarea v-model="feedbackForm.ai_draft" class="auto-textarea large-text" @input="autoResize"></textarea></label>
         </section>
 
@@ -2743,7 +2360,7 @@ onMounted(async () => {
 	      </form>
 
       <div v-if="showWritingReference" class="nested-modal-mask transparent-mask writing-reference-mask">
-        <aside class="paper-card modal-panel writing-reference-floating-modal" :style="writingReferenceStyle" aria-label="课堂内容填写参考">
+        <aside class="paper-card modal-panel writing-reference-floating-modal" :style="writingReferenceStyle" aria-label="课堂记录填写参考">
           <div class="modal-title draggable-title" @pointerdown="startWritingReferenceMove($event, 'move')">
             <div>
               <h3>参考示例</h3>
@@ -2760,77 +2377,6 @@ onMounted(async () => {
           </div>
           <button class="resize-handle" type="button" aria-label="调整参考示例浮窗大小" @pointerdown="startWritingReferenceMove($event, 'resize')"></button>
         </aside>
-      </div>
-
-      <div v-if="showMaterialsModal" class="nested-modal-mask transparent-mask">
-        <article class="paper-card modal-panel materials-floating-modal" :style="materialsModalStyle">
-          <div class="modal-title draggable-title" @pointerdown="startMaterialsModalMove($event, 'move')">
-            <div>
-              <h3>课堂资料</h3>
-              <small>{{ materialStatus }}</small>
-            </div>
-            <button type="button" class="icon-btn" @pointerdown.stop @click="closeMaterialsModal">×</button>
-          </div>
-
-          <div class="materials-header">
-            <div>
-              <strong>导入课堂资料</strong>
-              <small>最多 {{ MAX_MATERIAL_IMAGES }} 个资料页面，支持 JPG、PNG、WEBP 和 PDF。Word 请先导出为 PDF 后上传。</small>
-            </div>
-          </div>
-
-          <div class="materials-modal-body">
-            <p class="materials-guide">上传课堂照片、试卷截图或 PDF 后，可以识别图片里的知识点、题型和易错点，并把提炼结果填入“课堂学习内容”，辅助后续生成课后反馈。浮窗可以拖到网页边缘半隐藏，方便一边对照资料一边填写。</p>
-            <p class="settings-hint">这是可选功能。只有需要 AI 帮你看图片或 PDF 时再用；识别资料会消耗能看图片的模型额度，通常比普通文字生成消耗更多。</p>
-
-            <div v-if="materialImages.length" class="material-preview-grid">
-              <article v-for="(image, index) in materialImages" :key="image.id" class="material-preview-item">
-                <img :src="image.preview_url" alt="" />
-                <div>
-                  <strong>{{ image.file.name }}</strong>
-                  <small>{{ image.source }} · {{ formatFileSize(image.file.size) }}</small>
-                </div>
-                <button type="button" class="icon-btn" :disabled="materialsAnalyzing || materialsConverting" @click="removeMaterialImage(index)">×</button>
-              </article>
-            </div>
-            <p v-else class="settings-hint">还没有课堂资料。可以上传课堂照片、试卷截图，或直接选择 PDF。</p>
-
-            <section v-if="materialAnalysis" class="analysis-result-panel">
-              <div class="analysis-result-header">
-                <strong>课堂资料提炼结果</strong>
-                <button type="button" class="primary-btn" @click="applyMaterialAnalysis">填入课堂学习内容</button>
-              </div>
-              <p v-if="materialAnalysis.practice_summary">{{ materialAnalysis.practice_summary }}</p>
-              <div class="analysis-columns">
-                <div v-if="materialAnalysis.knowledge_points?.length">
-                  <strong>知识点</strong>
-                  <span v-for="item in materialAnalysis.knowledge_points" :key="item">{{ item }}</span>
-                </div>
-                <div v-if="materialAnalysis.question_types?.length">
-                  <strong>题型</strong>
-                  <span v-for="item in materialAnalysis.question_types" :key="item">{{ item }}</span>
-                </div>
-                <div v-if="materialAnalysis.weak_points?.length">
-                  <strong>易错点/薄弱点</strong>
-                  <span v-for="item in materialAnalysis.weak_points" :key="item">{{ item }}</span>
-                </div>
-              </div>
-            </section>
-          </div>
-
-          <div class="button-row materials-action-row">
-            <label class="file-picker-btn">
-              选择图片/PDF
-              <input ref="materialInput" type="file" :accept="MATERIAL_ACCEPT_TYPES" multiple @change="handleMaterialFiles" />
-            </label>
-            <button type="button" class="ghost-btn" :disabled="!materialImages.length || materialsAnalyzing || materialsConverting" @click="clearMaterialImages">清空</button>
-            <button type="button" class="ghost-btn" :disabled="!materialImages.length || materialsAnalyzing || materialsConverting" @click="analyzeMaterialImages">
-              {{ materialsConverting ? '正在转换 PDF...' : materialsAnalyzing ? '正在识别课堂资料...' : '识别并提炼课堂内容' }}
-            </button>
-          </div>
-
-          <button class="resize-handle" type="button" aria-label="调整课堂资料浮窗大小" @pointerdown="startMaterialsModalMove($event, 'resize')"></button>
-        </article>
       </div>
 
       <div v-if="showFeedbackStyleModal" class="nested-modal-mask">
@@ -2901,7 +2447,7 @@ onMounted(async () => {
       <article class="paper-card modal-panel feedback-detail-modal">
         <div class="modal-title"><h3>反馈详情</h3><button type="button" class="icon-btn" @click="closeFeedbackDetail">×</button></div>
         <template v-if="!isEditingDetail">
-          <p><strong>反馈标题：</strong>{{ detailFeedback.lesson_title || '未填写' }}</p><p><strong>上课时间：</strong>{{ detailFeedback.lesson_time }}</p><p><strong>课堂学习内容：</strong>{{ detailFeedback.lesson_summary }}</p><p><strong>课堂表现与知识掌握：</strong>{{ detailFeedback.performance_summary || '未填写' }}</p><p><strong>课后建议：</strong>{{ detailFeedback.advice_summary || '未填写' }}</p><p><strong>作业安排：</strong>{{ detailFeedback.homework_plan || '未填写' }}</p><h4>最终反馈</h4><pre>{{ detailFeedback.final_feedback }}</pre><details><summary>查看 AI 初稿</summary><pre>{{ detailFeedback.ai_draft }}</pre></details>
+          <p><strong>反馈标题：</strong>{{ detailFeedback.lesson_title || '未填写' }}</p><p><strong>上课时间：</strong>{{ detailFeedback.lesson_time }}</p><p><strong>课堂学习内容：</strong>{{ detailFeedback.lesson_summary }}</p><p><strong>课堂表现与知识掌握情况：</strong>{{ detailFeedback.performance_summary || '未填写' }}</p><p><strong>课后建议：</strong>{{ detailFeedback.advice_summary || '未填写' }}</p><p><strong>作业安排：</strong>{{ detailFeedback.homework_plan || '未填写' }}</p><h4>最终反馈</h4><pre>{{ detailFeedback.final_feedback }}</pre><details><summary>查看 AI 初稿</summary><pre>{{ detailFeedback.ai_draft }}</pre></details>
           <div class="button-row danger-row"><div class="button-row"><button class="ghost-btn" @click="isEditingDetail = true; assignFeedback(editForm, detailFeedback); resizeAllTextareas()">编辑反馈</button><button class="ghost-btn" @click="addCurrentFeedbackAsStyleExample">设为风格样例</button></div><button class="danger-btn" @click="deleteFeedback">删除反馈</button></div>
         </template>
         <form v-else class="feedback-editor" @submit.prevent="saveFeedbackEdit">
@@ -2953,23 +2499,25 @@ onMounted(async () => {
 
     <div v-if="showMonthlyModal" class="modal-mask">
       <form class="paper-card modal-panel feedback-editor" @submit.prevent="saveMonthlyFeedback">
-        <div class="modal-title"><h3>新增月度反馈</h3><button type="button" class="icon-btn" @click="closeMonthlyModal">×</button></div>
-        <label>反馈月份<input v-model="monthlyForm.feedback_month" type="month" /></label>
-        <label>本月作业完成情况简述<textarea v-model="monthlyForm.homework_summary" class="auto-textarea" @input="autoResize"></textarea></label>
-        <div class="button-row"><button type="button" class="ghost-btn" @click="generateMonthlyDraft">生成 AI 初稿</button><button class="primary-btn">保存月度反馈</button></div>
+        <div class="modal-title"><h3>新增晚辅反馈</h3><button type="button" class="icon-btn" @click="closeMonthlyModal">×</button></div>
+        <label>晚辅学生<select v-model="monthlyForm.student_id"><option value="">请选择学生</option><option v-for="student in eveningFeedbackStudentOptions" :key="student.id" :value="student.id">{{ student.name }}</option></select></label>
+        <label>反馈类型<select v-model="monthlyForm.period_type" @change="setEveningFeedbackPeriodType(monthlyForm, monthlyForm.period_type)"><option v-for="type in EVENING_PERIOD_TYPES" :key="type.value" :value="type.value">{{ type.label }}</option></select></label>
+        <label>{{ periodFieldLabel(monthlyForm.period_type) }}<input v-model="monthlyForm.period_value" :type="periodInputType(monthlyForm.period_type)" /></label>
+        <label>作业完成情况简述<textarea v-model="monthlyForm.homework_summary" class="auto-textarea" @input="autoResize"></textarea></label>
+        <div class="button-row"><button type="button" class="ghost-btn" @click="generateMonthlyDraft">生成 AI 初稿</button><button class="primary-btn">保存晚辅反馈</button></div>
         <label>AI 初稿<textarea v-model="monthlyForm.ai_draft" class="auto-textarea large-text" @input="autoResize"></textarea></label><label>最终反馈<textarea v-model="monthlyForm.final_feedback" class="auto-textarea final-text" @input="autoResize"></textarea></label>
       </form>
     </div>
 
     <div v-if="eveningDetail" class="modal-mask">
       <article class="paper-card modal-panel feedback-detail-modal">
-        <div class="modal-title"><h3>月度反馈详情</h3><button type="button" class="icon-btn" @click="eveningDetail = null">×</button></div>
+        <div class="modal-title"><h3>晚辅反馈详情</h3><button type="button" class="icon-btn" @click="eveningDetail = null">×</button></div>
         <template v-if="!isEditingEveningDetail">
-          <p><strong>月份：</strong>{{ eveningDetail.feedback_month }}</p><p><strong>作业情况：</strong>{{ eveningDetail.homework_summary }}</p><h4>最终反馈</h4><pre>{{ eveningDetail.final_feedback }}</pre><details><summary>查看 AI 初稿</summary><pre>{{ eveningDetail.ai_draft }}</pre></details>
+          <p><strong>学生：</strong>{{ eveningDetail.student_name || currentEveningStudent?.name || '未填写' }}</p><p><strong>反馈类型：</strong>{{ periodTypeLabel(eveningDetail.period_type) }}</p><p><strong>反馈时间：</strong>{{ eveningDetail.period_label }}</p><p><strong>作业情况：</strong>{{ eveningDetail.homework_summary }}</p><h4>最终反馈</h4><pre>{{ eveningDetail.final_feedback }}</pre><details><summary>查看 AI 初稿</summary><pre>{{ eveningDetail.ai_draft }}</pre></details>
           <div class="button-row danger-row"><button class="ghost-btn" @click="isEditingEveningDetail = true; assignMonthly(monthlyEditForm, eveningDetail); resizeAllTextareas()">编辑反馈</button><button class="danger-btn" @click="deleteEveningFeedback">删除反馈</button></div>
         </template>
         <form v-else class="feedback-editor" @submit.prevent="saveEveningDetailEdit">
-          <label>反馈月份<input v-model="monthlyEditForm.feedback_month" type="month" /></label><label>本月作业完成情况简述<textarea v-model="monthlyEditForm.homework_summary" class="auto-textarea" @input="autoResize"></textarea></label><label>AI 初稿<textarea v-model="monthlyEditForm.ai_draft" class="auto-textarea large-text" @input="autoResize"></textarea></label><label>最终反馈<textarea v-model="monthlyEditForm.final_feedback" class="auto-textarea final-text" @input="autoResize"></textarea></label>
+          <label>晚辅学生<select v-model="monthlyEditForm.student_id"><option v-for="student in eveningFeedbackStudentOptions" :key="student.id" :value="student.id">{{ student.name }}</option></select></label><label>反馈类型<select v-model="monthlyEditForm.period_type" @change="setEveningFeedbackPeriodType(monthlyEditForm, monthlyEditForm.period_type)"><option v-for="type in EVENING_PERIOD_TYPES" :key="type.value" :value="type.value">{{ type.label }}</option></select></label><label>{{ periodFieldLabel(monthlyEditForm.period_type) }}<input v-model="monthlyEditForm.period_value" :type="periodInputType(monthlyEditForm.period_type)" /></label><label>作业完成情况简述<textarea v-model="monthlyEditForm.homework_summary" class="auto-textarea" @input="autoResize"></textarea></label><label>AI 初稿<textarea v-model="monthlyEditForm.ai_draft" class="auto-textarea large-text" @input="autoResize"></textarea></label><label>最终反馈<textarea v-model="monthlyEditForm.final_feedback" class="auto-textarea final-text" @input="autoResize"></textarea></label>
           <div class="button-row"><button class="primary-btn">保存修改</button><button type="button" class="ghost-btn" @click="isEditingEveningDetail = false">取消</button></div>
         </form>
       </article>
