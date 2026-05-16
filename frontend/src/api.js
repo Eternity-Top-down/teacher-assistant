@@ -26,6 +26,7 @@ const FIELD_LABELS = {
   title: '样例标题',
   content: '反馈样例',
   enabled: '启用状态',
+  feedback_type: '样例类型',
 }
 
 export function getToken() {

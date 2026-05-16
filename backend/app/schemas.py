@@ -111,6 +111,7 @@ class EveningFeedbackGenerateRequest(BaseModel):
     period_type: str = Field(pattern=r"^(day|week|month)$")
     period_value: str = Field(min_length=7, max_length=10)
     homework_summary: str = Field(min_length=5, max_length=2000)
+    use_style_examples: bool = True
 
 
 class EveningFeedbackCreate(BaseModel):
@@ -151,12 +152,14 @@ class StyleExampleCreate(BaseModel):
     title: str = Field(default="", max_length=80)
     content: str = Field(min_length=20, max_length=5000)
     enabled: bool = True
+    feedback_type: str = Field(default="one_on_one", pattern=r"^(one_on_one|evening_feedback)$")
 
 
 class StyleExampleUpdate(BaseModel):
     title: str = Field(default="", max_length=80)
     content: str = Field(min_length=20, max_length=5000)
     enabled: bool = True
+    feedback_type: str = Field(default="one_on_one", pattern=r"^(one_on_one|evening_feedback)$")
 
 
 class StyleExampleFromFeedback(BaseModel):

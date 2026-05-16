@@ -138,6 +138,7 @@ def init_db() -> None:
                 teacher_id INTEGER NOT NULL,
                 title TEXT NOT NULL DEFAULT '',
                 content TEXT NOT NULL,
+                feedback_type TEXT NOT NULL DEFAULT 'one_on_one',
                 source_type TEXT NOT NULL DEFAULT 'manual',
                 source_feedback_id INTEGER,
                 enabled INTEGER NOT NULL DEFAULT 1,
@@ -164,6 +165,28 @@ def init_db() -> None:
         if "feedback_format_mode" not in settings_columns:
             db.execute(
                 "ALTER TABLE teacher_ai_settings ADD COLUMN feedback_format_mode TEXT NOT NULL DEFAULT 'structured'"
+            )
+        style_example_columns = {
+            row["name"]
+            for row in db.execute("PRAGMA table_info(teacher_style_examples)").fetchall()
+        }
+        if "feedback_type" not in style_example_columns:
+            db.execute(
+                "ALTER TABLE teacher_style_examples ADD COLUMN feedback_type TEXT NOT NULL DEFAULT 'one_on_one'"
+            )
+            db.execute(
+                """
+                UPDATE teacher_style_examples
+                SET feedback_type = 'evening_feedback'
+                WHERE source_type IN ('evening_feedback', 'evening_monthly')
+                """
+            )
+            db.execute(
+                """
+                UPDATE teacher_style_examples
+                SET source_type = 'feedback'
+                WHERE source_type IN ('one_on_one', 'evening_feedback', 'evening_monthly')
+                """
             )
         evening_class_columns = {
             row["name"]

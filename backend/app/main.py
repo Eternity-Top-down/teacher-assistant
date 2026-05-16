@@ -183,24 +183,38 @@ def lesson_date_label(lesson_time: str) -> str:
         return lesson_time[:10] or "本次"
 
 
-def list_enabled_style_examples(teacher_id: int, limit: int = 5) -> list[dict]:
+def normalize_style_feedback_type(feedback_type: str) -> str:
+    return "evening_feedback" if feedback_type in ("evening_feedback", "evening_monthly") else "one_on_one"
+
+
+def list_enabled_style_examples(teacher_id: int, feedback_type: str = "one_on_one", limit: int = 5) -> list[dict]:
+    normalized_type = normalize_style_feedback_type(feedback_type)
     with get_db() as db:
         rows = db.execute(
             """
-            SELECT id, title, content, source_type, source_feedback_id, enabled, created_at, updated_at
+            SELECT id, title, content, feedback_type, source_type, source_feedback_id, enabled, created_at, updated_at
             FROM teacher_style_examples
-            WHERE teacher_id = ? AND enabled = 1
+            WHERE teacher_id = ? AND feedback_type = ? AND enabled = 1
             ORDER BY id DESC
             LIMIT ?
             """,
-            (teacher_id, limit),
+            (teacher_id, normalized_type, limit),
         ).fetchall()
     return [dict(row) for row in rows]
 
 
-def count_enabled_style_examples(teacher_id: int, exclude_example_id: int | None = None) -> int:
-    query = "SELECT COUNT(*) AS count FROM teacher_style_examples WHERE teacher_id = ? AND enabled = 1"
-    params: list[int] = [teacher_id]
+def count_enabled_style_examples(
+    teacher_id: int,
+    feedback_type: str = "one_on_one",
+    exclude_example_id: int | None = None,
+) -> int:
+    normalized_type = normalize_style_feedback_type(feedback_type)
+    query = """
+        SELECT COUNT(*) AS count
+        FROM teacher_style_examples
+        WHERE teacher_id = ? AND feedback_type = ? AND enabled = 1
+    """
+    params: list[int | str] = [teacher_id, normalized_type]
     if exclude_example_id is not None:
         query += " AND id != ?"
         params.append(exclude_example_id)
@@ -208,8 +222,12 @@ def count_enabled_style_examples(teacher_id: int, exclude_example_id: int | None
         return db.execute(query, params).fetchone()["count"]
 
 
-def ensure_style_example_enable_slot(teacher_id: int, exclude_example_id: int | None = None) -> None:
-    if count_enabled_style_examples(teacher_id, exclude_example_id) >= MAX_ENABLED_STYLE_EXAMPLES:
+def ensure_style_example_enable_slot(
+    teacher_id: int,
+    feedback_type: str = "one_on_one",
+    exclude_example_id: int | None = None,
+) -> None:
+    if count_enabled_style_examples(teacher_id, feedback_type, exclude_example_id) >= MAX_ENABLED_STYLE_EXAMPLES:
         raise HTTPException(status_code=400, detail="最多启用 5 条风格样例参与生成，请先停用一条样例")
 
 
@@ -368,34 +386,49 @@ async def test_ai_settings(payload: AISettingsTest, teacher: dict = CurrentTeach
 
 
 @app.get("/api/settings/style-examples")
-def list_style_examples(teacher: dict = CurrentTeacher):
+def list_style_examples(feedback_type: str = "", teacher: dict = CurrentTeacher):
+    normalized_type = normalize_style_feedback_type(feedback_type) if feedback_type else ""
+    where_clause = "WHERE teacher_id = ?"
+    params: list[int | str] = [teacher["id"]]
+    if normalized_type:
+        where_clause += " AND feedback_type = ?"
+        params.append(normalized_type)
     with get_db() as db:
         rows = db.execute(
-            """
-            SELECT id, title, content, source_type, source_feedback_id, enabled, created_at, updated_at
+            f"""
+            SELECT id, title, content, feedback_type, source_type, source_feedback_id, enabled, created_at, updated_at
             FROM teacher_style_examples
-            WHERE teacher_id = ?
+            {where_clause}
             ORDER BY id DESC
             """,
-            (teacher["id"],),
+            params,
         ).fetchall()
     return {"examples": [dict(row) for row in rows]}
 
 
 @app.post("/api/settings/style-examples")
 def create_style_example(payload: StyleExampleCreate, teacher: dict = CurrentTeacher):
+    feedback_type = normalize_style_feedback_type(payload.feedback_type)
     if payload.enabled:
-        ensure_style_example_enable_slot(teacher["id"])
+        ensure_style_example_enable_slot(teacher["id"], feedback_type)
     timestamp = now_iso()
     with get_db() as db:
         cursor = db.execute(
             """
             INSERT INTO teacher_style_examples (
-                teacher_id, title, content, source_type, source_feedback_id, enabled, created_at, updated_at
+                teacher_id, title, content, feedback_type, source_type, source_feedback_id, enabled, created_at, updated_at
             )
-            VALUES (?, ?, ?, 'manual', NULL, ?, ?, ?)
+            VALUES (?, ?, ?, ?, 'manual', NULL, ?, ?, ?)
             """,
-            (teacher["id"], payload.title.strip(), payload.content.strip(), int(payload.enabled), timestamp, timestamp),
+            (
+                teacher["id"],
+                payload.title.strip(),
+                payload.content.strip(),
+                feedback_type,
+                int(payload.enabled),
+                timestamp,
+                timestamp,
+            ),
         )
         row = db.execute("SELECT * FROM teacher_style_examples WHERE id = ?", (cursor.lastrowid,)).fetchone()
     return {"example": dict(row)}
@@ -404,8 +437,9 @@ def create_style_example(payload: StyleExampleCreate, teacher: dict = CurrentTea
 @app.put("/api/settings/style-examples/{example_id}")
 def update_style_example(example_id: int, payload: StyleExampleUpdate, teacher: dict = CurrentTeacher):
     existing = require_style_example(example_id, teacher["id"])
+    feedback_type = normalize_style_feedback_type(existing["feedback_type"])
     if payload.enabled and not existing["enabled"]:
-        ensure_style_example_enable_slot(teacher["id"], example_id)
+        ensure_style_example_enable_slot(teacher["id"], feedback_type, example_id)
     with get_db() as db:
         db.execute(
             """
@@ -446,22 +480,24 @@ def create_style_example_from_feedback(payload: StyleExampleFromFeedback, teache
         feedback = require_feedback(payload.feedback_id, teacher["id"])
         content = feedback["final_feedback"]
         title = payload.title.strip() or feedback["lesson_title"] or f"一对一反馈样例 {feedback['lesson_time']}"
+        feedback_type = "one_on_one"
     else:
         feedback = require_evening_feedback(payload.feedback_id, teacher["id"])
         content = feedback["final_feedback"]
         title = payload.title.strip() or f"晚辅反馈样例 {feedback['period_label']}"
+        feedback_type = "evening_feedback"
 
-    ensure_style_example_enable_slot(teacher["id"])
+    ensure_style_example_enable_slot(teacher["id"], feedback_type)
     timestamp = now_iso()
     with get_db() as db:
         cursor = db.execute(
             """
             INSERT INTO teacher_style_examples (
-                teacher_id, title, content, source_type, source_feedback_id, enabled, created_at, updated_at
+                teacher_id, title, content, feedback_type, source_type, source_feedback_id, enabled, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+            VALUES (?, ?, ?, ?, 'feedback', ?, 1, ?, ?)
             """,
-            (teacher["id"], title, content, payload.feedback_type, payload.feedback_id, timestamp, timestamp),
+            (teacher["id"], title, content, feedback_type, payload.feedback_id, timestamp, timestamp),
         )
         row = db.execute("SELECT * FROM teacher_style_examples WHERE id = ?", (cursor.lastrowid,)).fetchone()
     return {"example": dict(row)}
@@ -595,7 +631,7 @@ async def create_ai_draft(student_id: int, payload: FeedbackGenerateRequest, tea
             performance_summary=payload.performance_summary,
             advice_summary=payload.advice_summary,
             homework_plan=payload.homework_plan,
-            style_examples=list_enabled_style_examples(teacher["id"]) if payload.use_style_examples else [],
+            style_examples=list_enabled_style_examples(teacher["id"], "one_on_one") if payload.use_style_examples else [],
             ai_config=ai_config,
         )
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
@@ -981,6 +1017,9 @@ async def generate_evening_draft(
             period_type=period["period_type"],
             period_label=period["period_label"],
             homework_summary=payload.homework_summary,
+            style_examples=list_enabled_style_examples(teacher["id"], "evening_feedback")
+            if payload.use_style_examples
+            else [],
             ai_config=ai_config,
         )
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
