@@ -16,6 +16,87 @@ TITLE_EMOJIS = {
     "advice": ["🎯", "💪", "🔍", "🧭", "🚀", "📈", "🪄", "🧩", "🔑", "🛠️", "🌈", "🏁"],
     "homework": ["✏️", "📌", "📒", "📋", "🗒️", "📎", "🖊️", "✅", "📍", "🧾", "📔", "📝"],
 }
+COMPOUND_SURNAMES = (
+    "欧阳",
+    "司马",
+    "上官",
+    "诸葛",
+    "东方",
+    "独孤",
+    "南宫",
+    "万俟",
+    "闻人",
+    "夏侯",
+    "尉迟",
+    "公羊",
+    "赫连",
+    "澹台",
+    "皇甫",
+    "宗政",
+    "濮阳",
+    "公冶",
+    "太叔",
+    "申屠",
+    "公孙",
+    "慕容",
+    "仲孙",
+    "钟离",
+    "长孙",
+    "宇文",
+    "司徒",
+    "鲜于",
+    "司空",
+    "闾丘",
+    "子车",
+    "亓官",
+    "司寇",
+    "巫马",
+    "公西",
+    "颛孙",
+    "壤驷",
+    "公良",
+    "漆雕",
+    "乐正",
+    "宰父",
+    "谷梁",
+    "拓跋",
+    "夹谷",
+    "轩辕",
+    "令狐",
+    "段干",
+    "百里",
+    "呼延",
+    "东郭",
+    "南门",
+    "羊舌",
+    "微生",
+    "公户",
+    "公玉",
+    "公仪",
+    "梁丘",
+    "公仲",
+    "公上",
+    "公门",
+    "公山",
+    "公坚",
+    "左丘",
+    "公伯",
+    "西门",
+    "公祖",
+    "第五",
+    "公乘",
+    "贯丘",
+    "公皙",
+    "南荣",
+    "东里",
+    "东宫",
+    "仲长",
+    "子书",
+    "子桑",
+    "即墨",
+    "达奚",
+    "褚师",
+)
 
 
 def pick_title_emojis() -> dict[str, str]:
@@ -27,10 +108,13 @@ def student_display_name(full_name: str) -> str:
     if not name:
         return name
     if all("\u4e00" <= char <= "\u9fff" for char in name):
-        if len(name) == 2:
-            return name[1:]
-        if len(name) >= 3:
-            return name[-2:]
+        if len(name) <= 2:
+            return name
+        compound_surname = next((surname for surname in COMPOUND_SURNAMES if name.startswith(surname)), "")
+        if compound_surname:
+            given_name = name[len(compound_surname) :]
+            return given_name if len(given_name) >= 2 else name
+        return name[1:]
     return name
 
 
@@ -379,15 +463,16 @@ def fallback_evening_feedback(
     period_label: str,
     homework_summary: str,
 ) -> str:
+    display_name = student_display_name(student_name)
     period_word = {"day": "当天", "week": "本周", "month": "本月"}.get(period_type, "本次")
     next_word = {"day": "后续晚辅", "week": "下周晚辅", "month": "下个月晚辅"}.get(period_type, "后续晚辅")
-    return f"""{student_name}{period_label}晚辅作业完成情况反馈：
+    return f"""{display_name}{period_label}晚辅作业完成情况反馈：
 
-{period_word}晚辅中，{student_name}的作业完成情况主要表现为：{homework_summary}
+{period_word}晚辅中，{display_name}的作业完成情况主要表现为：{homework_summary}
 
 从整体情况来看，孩子的晚辅作业状态可以结合以上情况继续跟进。后续完成作业时，建议继续关注订正质量、计算细节和独立思考过程，遇到不会的题目及时标记并提问，避免问题积累。
 
-{next_word}会继续关注{student_name}的作业完成质量和错题订正情况，帮助孩子逐步养成更稳定的数学作业习惯。"""
+{next_word}会继续关注{display_name}的作业完成质量和错题订正情况，帮助孩子逐步养成更稳定的数学作业习惯。"""
 
 
 async def generate_evening_feedback(
@@ -409,6 +494,7 @@ async def generate_evening_feedback(
     if not config.api_key:
         return fallback_evening_feedback(student_name, period_type, period_label, homework_summary)
 
+    display_name = student_display_name(student_name)
     student_info = "，".join(part for part in [student_name, grade, school] if part)
     period_rule = {
         "day": "按天反馈：强调当天晚辅作业完成情况，语言更短、更具体，适合当天发给家长。",
@@ -458,7 +544,7 @@ async def generate_evening_feedback(
 6. 内容重点围绕：作业完成情况、作业质量/订正情况、晚辅状态、存在问题、后续提醒；没有输入的项可以不写。
 7. 如果老师输入信息很少，宁可写短一点、稳一点，不要凑成长篇，不要使用“整体来看”“继续保持”“逐步提升”等空泛套话撑篇幅。
 8. 后续提醒只能来自老师输入或由输入直接推出的通用提醒，例如“订正错题”“复盘出错原因”“提高完成效率”；不要新增具体作业任务。
-9. 称呼学生时使用“{student_name}”，不要补全或猜测其他姓名。
+9. 正文称呼学生时只使用“{display_name}”，不要使用登记全名“{student_name}”，也不要补全或猜测其他姓名。
 10. {period_rule}
 {style_rule}
 
@@ -467,7 +553,8 @@ async def generate_evening_feedback(
 老师晚辅反馈风格样例（只学写法，不学事实）：
 {style_text or "无"}
 
-学生信息：{student_info or student_name}
+学生登记信息：{student_info or student_name}
+反馈使用称呼：{display_name}
 反馈时间：{period_label}
 反馈口径：{period_name}晚辅
 作业完成情况简述：
