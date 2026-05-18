@@ -16,6 +16,7 @@ import sidebarLogoArt from './assets/illustrations/sidebar-logo-crayon.png'
 const teacher = ref(null)
 const route = ref(window.location.hash || '#/one-on-one')
 const loading = ref(false)
+const generatingMonthlyDraft = ref(false)
 const message = ref('')
 const authMode = ref('login')
 
@@ -57,6 +58,7 @@ const showSettingsGuide = ref(false)
 const showFeedbackStyleModal = ref(false)
 const activeStyleExampleType = ref('one_on_one')
 const showWritingReference = ref(false)
+const feedbackEntryMode = ref('raw')
 const rawLessonNote = ref('')
 const hasOrganizedLessonNote = ref(false)
 const rawLessonNoteDirty = ref(false)
@@ -83,6 +85,7 @@ const EVENING_PERIOD_TYPES = [
   { value: 'week', label: '按周' },
   { value: 'month', label: '按月' },
 ]
+const COMMON_SUBJECTS = ['数学', '英语', '语文', '物理', '化学', '生物', '历史', '地理', '政治', '科学']
 const FEEDBACK_CORE_FIELDS = [
   {
     formField: 'lesson_summary',
@@ -149,9 +152,9 @@ const aiSettingsForm = reactive({
   api_key: '',
   clear_api_key: false,
 })
-const styleExampleForm = reactive({ title: '', content: '', enabled: true })
-const inlineStyleExampleForm = reactive({ title: '', content: '', enabled: true })
-const styleExampleEditForm = reactive({ title: '', content: '', enabled: true })
+const styleExampleForm = reactive({ title: '', content: '', enabled: false })
+const inlineStyleExampleForm = reactive({ title: '', content: '', enabled: false })
+const styleExampleEditForm = reactive({ title: '', content: '', enabled: false })
 const legacyQaAnswers = reactive(defaultQaAnswers())
 const writingReferenceFrame = reactive({ left: 220, top: 110, width: 560, height: 520 })
 const writingReferenceDrag = reactive({ active: false, startX: 0, startY: 0, startLeft: 0, startTop: 0, startWidth: 0, startHeight: 0, mode: '' })
@@ -232,19 +235,27 @@ const currentStyleExamples = computed(() =>
 )
 const oneOnOneEnabledStyleExampleCount = computed(() => oneOnOneStyleExamples.value.filter((example) => example.enabled).length)
 const eveningEnabledStyleExampleCount = computed(() => eveningStyleExamples.value.filter((example) => example.enabled).length)
+function styleEnabledStatus(count, disabledText, standardText) {
+  if (count && disabledText) return disabledText
+  if (!count) return standardText
+  if (count === 1) return '已选择 1 条样例参与生成'
+  if (count <= 3) return `已选择 ${count} 条样例参与生成，建议优先选择你最满意的反馈`
+  return `已选择 ${count} 条样例参与生成，数量偏多时可能影响篇幅和语气稳定`
+}
+
 const styleGenerationStatus = computed(() =>
-  oneOnOneEnabledStyleExampleCount.value && !useStyleExamplesForDraft.value
-    ? '本次已停用个人风格，将按标准结构生成'
-    : oneOnOneEnabledStyleExampleCount.value
-    ? `已启用 ${oneOnOneEnabledStyleExampleCount.value} / ${MAX_ENABLED_STYLE_EXAMPLES} 条一对一样例，将按个人风格生成`
-    : '暂无启用样例，将按标准结构生成'
+  styleEnabledStatus(
+    oneOnOneEnabledStyleExampleCount.value,
+    oneOnOneEnabledStyleExampleCount.value && !useStyleExamplesForDraft.value ? '本次已停用个人风格，将按标准结构生成' : '',
+    '未启用样例，将按标准结构生成',
+  )
 )
 const eveningStyleGenerationStatus = computed(() =>
-  eveningEnabledStyleExampleCount.value && !useStyleExamplesForMonthlyDraft.value
-    ? '本次已停用晚辅个人风格，将按标准晚辅写法生成'
-    : eveningEnabledStyleExampleCount.value
-    ? `已启用 ${eveningEnabledStyleExampleCount.value} / ${MAX_ENABLED_STYLE_EXAMPLES} 条晚辅样例，将按晚辅个人风格生成`
-    : '暂无启用晚辅样例，将按标准晚辅写法生成'
+  styleEnabledStatus(
+    eveningEnabledStyleExampleCount.value,
+    eveningEnabledStyleExampleCount.value && !useStyleExamplesForMonthlyDraft.value ? '本次已停用晚辅个人风格，将按标准晚辅写法生成' : '',
+    '未启用晚辅样例，将按标准晚辅写法生成',
+  )
 )
 const currentStyleGenerationStatus = computed(() =>
   activeStyleExampleType.value === 'evening_feedback' ? eveningStyleGenerationStatus.value : styleGenerationStatus.value
@@ -259,20 +270,22 @@ const styleSettingsHint = computed(() =>
     : '当前管理一对一反馈风格样例，只影响一对一课后反馈生成。启用样例后，AI 会学习你的标题格式、四段课后反馈结构、语气和详略。'
 )
 const styleExampleTitlePlaceholder = computed(() =>
-  activeStyleExampleType.value === 'evening_feedback' ? '例如：小明本周晚辅反馈' : '例如：小明第3次数学课（5.12）'
+  activeStyleExampleType.value === 'evening_feedback' ? '例如：小明5月数学晚辅反馈' : '例如：小明第3次数学课（5.12）'
 )
 const styleExampleContentPlaceholder = computed(() =>
-  activeStyleExampleType.value === 'evening_feedback' ? '粘贴一段你写过的完整晚辅反馈' : '粘贴一段你写过的完整一对一课后反馈'
+  activeStyleExampleType.value === 'evening_feedback'
+    ? '例如：\n小明5月数学晚辅反馈\n\n本月晚辅中，小明的数学作业整体完成较认真，订正也比之前更及时……'
+    : '例如：\n小明第3次数学课（5.12）\n\n📖1.课堂学习内容：\n本节课主要复习了一次函数图像与解析式……\n\n🌟2.课堂表现与知识掌握情况：\n……'
 )
 const styleExampleTitleHelp = computed(() =>
   activeStyleExampleType.value === 'evening_feedback'
-    ? '建议用“学生 + 时间段 + 晚辅反馈”，方便以后在晚辅样例库里查找。标题仅用于管理样例。'
-    : '建议用“学生 + 第几次 + 科目 + 日期”，方便以后在一对一样例库里查找。标题仅用于管理样例。'
+    ? '这里只是样例保存在晚辅样例库里的管理名称；不会被 AI 当成反馈标题学习。标题不在正文第一行时，建议手动填写。'
+    : '这里只是样例保存在一对一样例库里的管理名称；不会被 AI 当成反馈标题学习。标题不在正文第一行时，建议手动填写。'
 )
 const styleExampleContentHelp = computed(() =>
   activeStyleExampleType.value === 'evening_feedback'
-    ? 'AI 只学习晚辅反馈正文的表达方式、段落详略和家长沟通语气，不会复用样例里的学生事实。'
-    : 'AI 只学习这里的正文内容。若希望 AI 学习你的标题格式，请把标题行也一起粘贴到这里。'
+    ? 'AI 只学习这里粘贴的晚辅反馈正文。若希望 AI 学习标题格式，请把标题行和正文一起放在这里；样例标题不会参与学习。'
+    : 'AI 只学习这里粘贴的反馈正文。若希望 AI 学习标题格式，请把标题行和正文一起放在这里；样例标题不会参与学习。'
 )
 const missingFeedbackFields = computed(() => FEEDBACK_CORE_FIELDS.filter((field) => !String(feedbackForm[field.formField] || '').trim()).map((field) => field.formField))
 const blockingMissingFields = computed(() => [...new Set([...organizeMissingFields.value, ...missingFeedbackFields.value])])
@@ -348,6 +361,7 @@ function defaultFeedbackSearchRange() {
   return {
     start_date: dateInputValue(start),
     end_date: dateInputValue(end),
+    student_name: '',
   }
 }
 
@@ -374,6 +388,7 @@ function defaultEveningSearchRange() {
     start_date: dateInputValue(start),
     end_date: dateInputValue(end),
     period_type: '',
+    student_name: '',
   }
 }
 
@@ -440,6 +455,7 @@ function newMonthlyFeedback() {
     student_id: '',
     period_type: 'month',
     period_value: currentMonth(),
+    subject: '',
     homework_summary: '',
     ai_draft: '',
     final_feedback: '',
@@ -544,8 +560,14 @@ function titleForGenerate(title, lessonTime) {
 
 function defaultStyleExampleTitle() {
   if (activeStyleExampleType.value === 'evening_feedback') return '晚辅反馈样例'
-  const title = titleForGenerate(feedbackForm.lesson_title, feedbackForm.lesson_time)
-  return title || '一对一课后反馈样例'
+  return '一对一课后反馈样例'
+}
+
+function firstLineStyleExampleTitle(content) {
+  return String(content || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean) || ''
 }
 
 function lessonDateValue(lessonTime) {
@@ -619,6 +641,7 @@ function assignFeedback(target, source) {
 function resetFeedbackForm() {
   assignFeedback(feedbackForm, newFeedback())
   Object.assign(legacyQaAnswers, defaultQaAnswers())
+  feedbackEntryMode.value = 'raw'
   rawLessonNote.value = ''
   hasOrganizedLessonNote.value = false
   rawLessonNoteDirty.value = false
@@ -672,6 +695,7 @@ function saveFeedbackDraft() {
   const draft = {
     feedback: { ...feedbackForm },
     feedback_panels: { ...feedbackPanels },
+    feedback_entry_mode: feedbackEntryMode.value,
     raw_lesson_note: rawLessonNote.value,
     has_organized_lesson_note: hasOrganizedLessonNote.value,
     raw_lesson_note_dirty: rawLessonNoteDirty.value,
@@ -693,6 +717,7 @@ function applyFeedbackDraft(draft) {
   assignFeedback(feedbackForm, draft.feedback)
   Object.assign(feedbackPanels, defaultFeedbackPanels(), draft.feedback_panels || {})
   Object.assign(legacyQaAnswers, defaultQaAnswers(), draft.qa_answers || {})
+  feedbackEntryMode.value = draft.feedback_entry_mode || 'raw'
   rawLessonNote.value = draft.raw_lesson_note || ''
   hasOrganizedLessonNote.value = draft.has_organized_lesson_note === true
   rawLessonNoteDirty.value = draft.raw_lesson_note_dirty === true
@@ -707,6 +732,12 @@ function applyFeedbackDraft(draft) {
   useStyleExamplesForDraft.value = draft.use_style_examples !== false
   feedbackDraftStatus.value = '已恢复草稿'
   hasSavedFeedbackDraft.value = true
+}
+
+async function setFeedbackEntryMode(mode) {
+  feedbackEntryMode.value = mode
+  saveFeedbackDraft()
+  await resizeAllTextareas()
 }
 
 function clearFeedbackDraft() {
@@ -727,6 +758,7 @@ function assignMonthly(target, source) {
   target.student_id = source.student_id || currentEveningStudent.value?.id || ''
   target.period_type = source.period_type || 'month'
   target.period_value = source.period_value || source.feedback_month || defaultPeriodValue(target.period_type)
+  target.subject = source.subject || ''
   target.homework_summary = source.homework_summary || ''
   target.ai_draft = source.ai_draft || ''
   target.final_feedback = source.final_feedback || ''
@@ -739,6 +771,10 @@ function resetMonthlyForm() {
 function setEveningFeedbackPeriodType(form, type) {
   form.period_type = type
   form.period_value = defaultPeriodValue(type)
+}
+
+function subjectWorkLabel(subject) {
+  return subject?.trim() ? `${subject.trim()}作业` : '作业'
 }
 
 function routeId(index = 2) {
@@ -903,9 +939,9 @@ function enabledStyleExampleCountFor(type) {
 async function createStyleExampleFromForm(form, successMessage = '风格样例已保存', feedbackType = activeStyleExampleType.value) {
   if (!form.content.trim()) return showMessage('请粘贴一段反馈样例')
   if (form.enabled && enabledStyleExampleCountFor(feedbackType) >= MAX_ENABLED_STYLE_EXAMPLES) {
-    return showMessage(`最多启用 5 条${styleTypeLabel(feedbackType)}风格样例参与生成，请先停用一条样例`)
+    return showMessage(`最多启用 5 条${styleTypeLabel(feedbackType)}风格样例参与生成，建议 1-3 条；请先停用一条差异较大的样例`)
   }
-  const title = form.title.trim() || (form === inlineStyleExampleForm ? defaultStyleExampleTitle() : '')
+  const title = form.title.trim() || firstLineStyleExampleTitle(form.content) || (form === inlineStyleExampleForm ? defaultStyleExampleTitle() : '')
   loading.value = true
   try {
     await request('/settings/style-examples', {
@@ -917,7 +953,7 @@ async function createStyleExampleFromForm(form, successMessage = '风格样例�
         feedback_type: feedbackType,
       }),
     })
-    Object.assign(form, { title: '', content: '', enabled: true })
+    Object.assign(form, { title: '', content: '', enabled: false })
     await loadStyleExamples()
     showMessage(successMessage)
   } catch (error) {
@@ -928,11 +964,11 @@ async function createStyleExampleFromForm(form, successMessage = '风格样例�
 }
 
 async function saveStyleExample() {
-  await createStyleExampleFromForm(styleExampleForm, `${styleTypeLabel()}风格样例已保存`, activeStyleExampleType.value)
+  await createStyleExampleFromForm(styleExampleForm, `已保存到${styleTypeLabel()}样例库`, activeStyleExampleType.value)
 }
 
 async function saveInlineStyleExample() {
-  await createStyleExampleFromForm(inlineStyleExampleForm, `${styleTypeLabel()}风格样例已添加，可继续填写反馈`)
+  await createStyleExampleFromForm(inlineStyleExampleForm, `已保存到${styleTypeLabel()}样例库，可继续填写反馈`)
 }
 
 function assignStyleExampleForm(form, example) {
@@ -964,7 +1000,7 @@ async function saveStyleExampleEdit() {
     !detailStyleExample.value?.enabled &&
     enabledStyleExampleCountFor(detailStyleExample.value?.feedback_type || 'one_on_one') >= MAX_ENABLED_STYLE_EXAMPLES
   ) {
-    return showMessage(`最多启用 5 条${styleTypeLabel(detailStyleExample.value?.feedback_type)}风格样例参与生成，请先停用一条样例`)
+    return showMessage(`最多启用 5 条${styleTypeLabel(detailStyleExample.value?.feedback_type)}风格样例参与生成，建议 1-3 条；请先停用一条差异较大的样例`)
   }
   loading.value = true
   try {
@@ -985,7 +1021,7 @@ async function saveStyleExampleEdit() {
 
 async function toggleStyleExample(example) {
   if (!example.enabled && enabledStyleExampleCountFor(example.feedback_type || 'one_on_one') >= MAX_ENABLED_STYLE_EXAMPLES) {
-    return showMessage(`最多启用 5 条${styleTypeLabel(example.feedback_type)}风格样例参与生成，请先停用一条样例`)
+    return showMessage(`最多启用 5 条${styleTypeLabel(example.feedback_type)}风格样例参与生成，建议 1-3 条；请先停用一条差异较大的样例`)
   }
   loading.value = true
   try {
@@ -1032,6 +1068,7 @@ function feedbackSearchQuery() {
   const params = new URLSearchParams()
   if (feedbackSearchForm.start_date) params.set('start_date', feedbackSearchForm.start_date)
   if (feedbackSearchForm.end_date) params.set('end_date', feedbackSearchForm.end_date)
+  if (feedbackSearchForm.student_name?.trim()) params.set('student_name', feedbackSearchForm.student_name.trim())
   const query = params.toString()
   return query ? `/feedbacks?${query}` : '/feedbacks'
 }
@@ -1041,6 +1078,7 @@ function eveningFeedbackSearchQuery() {
   if (eveningFeedbackSearchForm.start_date) params.set('start_date', eveningFeedbackSearchForm.start_date)
   if (eveningFeedbackSearchForm.end_date) params.set('end_date', eveningFeedbackSearchForm.end_date)
   if (eveningFeedbackSearchForm.period_type) params.set('period_type', eveningFeedbackSearchForm.period_type)
+  if (eveningFeedbackSearchForm.student_name?.trim()) params.set('student_name', eveningFeedbackSearchForm.student_name.trim())
   const query = params.toString()
   return query ? `/evening/feedbacks?${query}` : '/evening/feedbacks'
 }
@@ -1735,6 +1773,7 @@ async function generateMonthlyDraft() {
   if (!monthlyForm.student_id) return showMessage('请选择晚辅学生')
   if (!monthlyForm.period_value) return showMessage('请选择反馈时间')
   if (!monthlyForm.homework_summary.trim()) return showMessage('请填写作业完成情况简述')
+  generatingMonthlyDraft.value = true
   loading.value = true
   try {
     const classId = currentClass.value?.id || currentEveningStudent.value?.class_id
@@ -1744,6 +1783,7 @@ async function generateMonthlyDraft() {
         student_id: Number(monthlyForm.student_id),
         period_type: monthlyForm.period_type,
         period_value: monthlyForm.period_value,
+        subject: monthlyForm.subject,
         homework_summary: monthlyForm.homework_summary,
         use_style_examples: useStyleExamplesForMonthlyDraft.value,
       }),
@@ -1755,6 +1795,7 @@ async function generateMonthlyDraft() {
   } catch (error) {
     showMessage(error.message)
   } finally {
+    generatingMonthlyDraft.value = false
     loading.value = false
   }
 }
@@ -1876,6 +1917,9 @@ onMounted(async () => {
 
 <template>
   <main class="page-shell" @click="closeAccountMenu">
+    <datalist id="subject-options">
+      <option v-for="subject in COMMON_SUBJECTS" :key="subject" :value="subject"></option>
+    </datalist>
     <section v-if="currentView === 'auth'" class="auth-page">
       <div class="auth-illustration">
         <div class="auth-copy">
@@ -1981,12 +2025,13 @@ onMounted(async () => {
               <h3>按时间查找一对一反馈</h3>
               <small>{{ searchRangeLabel(feedbackSearchForm.start_date, feedbackSearchForm.end_date) }} · {{ feedbackSearchResults.length }} 条结果</small>
             </div>
+            <label>学生姓名<input v-model="feedbackSearchForm.student_name" placeholder="输入姓名关键字" /></label>
             <label>开始日期<input v-model="feedbackSearchForm.start_date" type="date" /></label>
             <label>结束日期<input v-model="feedbackSearchForm.end_date" type="date" /></label>
             <div class="button-row">
               <button class="primary-btn" :disabled="loading">查询</button>
               <button type="button" class="ghost-btn" :disabled="loading" @click="resetFeedbackSearch">最近 30 天</button>
-              <button type="button" class="ghost-btn" :disabled="loading" @click="feedbackSearchForm.start_date = ''; feedbackSearchForm.end_date = ''; loadFeedbackSearchResults()">清空</button>
+              <button type="button" class="ghost-btn" :disabled="loading" @click="feedbackSearchForm.start_date = ''; feedbackSearchForm.end_date = ''; feedbackSearchForm.student_name = ''; loadFeedbackSearchResults()">清空</button>
             </div>
           </form>
           <div class="history-list">
@@ -2013,18 +2058,19 @@ onMounted(async () => {
               <small>{{ searchRangeLabel(eveningFeedbackSearchForm.start_date, eveningFeedbackSearchForm.end_date) }} · {{ eveningFeedbackSearchResults.length }} 条结果</small>
             </div>
             <label>反馈类型<select v-model="eveningFeedbackSearchForm.period_type"><option value="">全部</option><option v-for="type in EVENING_PERIOD_TYPES" :key="type.value" :value="type.value">{{ type.label }}</option></select></label>
+            <label>学生姓名<input v-model="eveningFeedbackSearchForm.student_name" placeholder="输入姓名关键字" /></label>
             <label>开始日期<input v-model="eveningFeedbackSearchForm.start_date" type="date" /></label>
             <label>结束日期<input v-model="eveningFeedbackSearchForm.end_date" type="date" /></label>
             <div class="button-row">
               <button class="primary-btn" :disabled="loading">查询</button>
               <button type="button" class="ghost-btn" :disabled="loading" @click="resetEveningFeedbackSearch">最近 90 天</button>
-              <button type="button" class="ghost-btn" :disabled="loading" @click="eveningFeedbackSearchForm.start_date = ''; eveningFeedbackSearchForm.end_date = ''; eveningFeedbackSearchForm.period_type = ''; loadEveningFeedbackSearchResults()">清空</button>
+              <button type="button" class="ghost-btn" :disabled="loading" @click="eveningFeedbackSearchForm.start_date = ''; eveningFeedbackSearchForm.end_date = ''; eveningFeedbackSearchForm.period_type = ''; eveningFeedbackSearchForm.student_name = ''; loadEveningFeedbackSearchResults()">清空</button>
             </div>
           </form>
           <div class="history-list">
             <button v-for="feedback in eveningFeedbackSearchResults" :key="feedback.id" class="history-card" type="button" @click="openEveningDetail(feedback)">
               <strong>{{ feedback.student_name }} · {{ feedback.period_label }}</strong>
-              <span>{{ periodTypeLabel(feedback.period_type) }} · {{ feedback.class_name }} · {{ feedback.grade || '未填年级' }} · {{ feedback.school || '未填学校' }}</span>
+              <span>{{ periodTypeLabel(feedback.period_type) }} · {{ subjectWorkLabel(feedback.subject) }} · {{ feedback.class_name }} · {{ feedback.grade || '未填年级' }} · {{ feedback.school || '未填学校' }}</span>
               <small>{{ shortText(feedback.homework_summary, 86) }}</small>
               <small>{{ shortText(feedback.final_feedback, 130) }}</small>
             </button>
@@ -2149,7 +2195,7 @@ onMounted(async () => {
           </div>
           <div class="history-list">
             <button v-for="feedback in eveningFeedbacks" :key="feedback.id" class="history-card" @click="openEveningDetail(feedback)">
-              <strong>{{ feedback.period_label }}</strong><span>{{ periodTypeLabel(feedback.period_type) }} · {{ shortText(feedback.homework_summary, 72) }}</span><small>{{ shortText(feedback.final_feedback, 120) }}</small>
+              <strong>{{ feedback.period_label }}</strong><span>{{ periodTypeLabel(feedback.period_type) }} · {{ subjectWorkLabel(feedback.subject) }} · {{ shortText(feedback.homework_summary, 72) }}</span><small>{{ shortText(feedback.final_feedback, 120) }}</small>
             </button>
             <div v-if="!eveningFeedbacks.length" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>暂无晚辅反馈。</span></div>
           </div>
@@ -2216,7 +2262,7 @@ onMounted(async () => {
                 <small>可选配置，让生成出来的反馈更像你平时写给家长的表达。</small>
               </span>
               <span class="settings-header-side">
-                <span class="settings-pill" :class="{ ok: oneOnOneEnabledStyleExampleCount || eveningEnabledStyleExampleCount }">{{ styleExamples.length ? `一对一 ${oneOnOneEnabledStyleExampleCount} · 晚辅 ${eveningEnabledStyleExampleCount}` : '可选 · 暂无样例' }}</span>
+                <span class="settings-pill" :class="{ ok: oneOnOneEnabledStyleExampleCount || eveningEnabledStyleExampleCount }">{{ styleExamples.length ? `一对一参与 ${oneOnOneEnabledStyleExampleCount} 条 · 晚辅参与 ${eveningEnabledStyleExampleCount} 条` : '可选 · 暂无样例' }}</span>
                 <span class="settings-caret">{{ settingsPanels.style_examples ? '收起' : '展开' }}</span>
               </span>
             </button>
@@ -2224,13 +2270,13 @@ onMounted(async () => {
             <div v-show="settingsPanels.style_examples" class="settings-panel-body">
               <label>反馈样例类型
                 <select v-model="activeStyleExampleType" @change="styleExamplePage = 1">
-                  <option value="one_on_one">一对一反馈样例（已启用 {{ oneOnOneEnabledStyleExampleCount }} / {{ MAX_ENABLED_STYLE_EXAMPLES }}）</option>
-                  <option value="evening_feedback">晚辅反馈样例（已启用 {{ eveningEnabledStyleExampleCount }} / {{ MAX_ENABLED_STYLE_EXAMPLES }}）</option>
+                  <option value="one_on_one">一对一反馈样例（参与生成 {{ oneOnOneEnabledStyleExampleCount }} 条）</option>
+                  <option value="evening_feedback">晚辅反馈样例（参与生成 {{ eveningEnabledStyleExampleCount }} 条）</option>
                 </select>
                 <small>不同反馈类型使用独立样例库。以后增加班课反馈时，也会在这里单独切换管理。</small>
               </label>
 
-              <p class="settings-hint">{{ styleSettingsHint }} 添加是保存样例，启用才会参与生成，每种类型最多启用 {{ MAX_ENABLED_STYLE_EXAMPLES }} 条。</p>
+              <p class="settings-hint">{{ styleSettingsHint }} 样例库可以多保存，方便以后管理；真正参与生成时，建议只启用 1-3 条你最满意、最想让 AI 模仿的高质量反馈，最多 {{ MAX_ENABLED_STYLE_EXAMPLES }} 条。</p>
 
               <label>样例标题
                 <input v-model="styleExampleForm.title" :placeholder="styleExampleTitlePlaceholder" />
@@ -2244,18 +2290,18 @@ onMounted(async () => {
 
               <label class="check-row">
                 <input v-model="styleExampleForm.enabled" type="checkbox" />
-                <span>保存后立即启用，参与后续{{ styleTypeLabel() }}反馈生成</span>
+                <span>保存后立即参与生成</span>
               </label>
 
               <div class="button-row">
-                <button class="primary-btn" :disabled="loading">保存{{ styleTypeLabel() }}风格样例</button>
+                <button class="primary-btn" :disabled="loading">保存到{{ styleTypeLabel() }}样例库</button>
               </div>
 
               <div class="style-example-list">
                 <article v-for="example in paginatedStyleExamples" :key="example.id" class="style-example-item" role="button" tabindex="0" @click="openStyleExampleDetail(example)" @keydown.enter.prevent="openStyleExampleDetail(example)">
                   <div>
                     <strong>{{ example.title || '未命名样例' }}</strong>
-                    <small>{{ example.enabled ? '生成时参考' : '已停用' }} · {{ shortText(example.content, 88) }}</small>
+                    <small>{{ example.enabled ? '参与生成' : '仅保存' }} · {{ shortText(example.content, 88) }}</small>
                   </div>
                   <div class="button-row">
                     <button type="button" class="ghost-btn" :disabled="loading" @click.stop="toggleStyleExample(example)">{{ example.enabled ? '停用' : '启用' }}</button>
@@ -2314,7 +2360,7 @@ onMounted(async () => {
 
         <template v-if="!isEditingStyleExample">
           <div class="style-example-meta-row">
-            <span :class="{ active: detailStyleExample.enabled }">{{ detailStyleExample.enabled ? '生成时参考' : '已停用' }}</span>
+            <span :class="{ active: detailStyleExample.enabled }">{{ detailStyleExample.enabled ? '参与生成' : '仅保存' }}</span>
             <small>{{ detailStyleExample.source_type === 'manual' ? '手动添加' : '来自已保存反馈' }} · {{ detailStyleExample.updated_at || detailStyleExample.created_at }}</small>
           </div>
           <pre>{{ detailStyleExample.content }}</pre>
@@ -2330,11 +2376,11 @@ onMounted(async () => {
         <form v-else class="feedback-editor" @submit.prevent="saveStyleExampleEdit">
           <label>样例标题
             <input v-model="styleExampleEditForm.title" placeholder="例如：某学生第3次数学课（4.26）" />
-            <small>标题只用于管理样例，不参与 AI 学习。</small>
+            <small>这里只是样例库里的管理名称；不会被 AI 当成反馈标题学习。标题不在正文第一行时，建议手动填写。</small>
           </label>
           <label>反馈样例
             <textarea v-model="styleExampleEditForm.content" class="auto-textarea final-text" @input="autoResize"></textarea>
-            <small>AI 只学习这里的正文内容。若希望 AI 学习你的标题格式，请把标题行也一起粘贴到这里。</small>
+            <small>AI 只学习这里粘贴的反馈正文。若希望 AI 学习标题格式，请把标题行和正文一起放在这里。</small>
           </label>
           <label class="check-row">
             <input v-model="styleExampleEditForm.enabled" type="checkbox" />
@@ -2405,24 +2451,28 @@ onMounted(async () => {
           </div>
           <div v-show="feedbackPanels.content" class="feedback-panel-body">
             <div class="qa-mode-panel quick-note-panel">
-              <label class="qa-question">
+              <div class="entry-mode-toggle" role="group" aria-label="课堂记录填写方式">
+                <button type="button" :class="{ active: feedbackEntryMode === 'raw' }" @click="setFeedbackEntryMode('raw')">原始记录整理</button>
+                <button type="button" :class="{ active: feedbackEntryMode === 'direct' }" @click="setFeedbackEntryMode('direct')">直接填四板块</button>
+              </div>
+              <label v-if="feedbackEntryMode === 'raw'" class="qa-question">
                 <span>本节课原始记录</span>
                 <small>随便写：讲了什么、学生表现、哪里需要注意、布置了什么作业。建议和作业最好分开写，例如“建议：……；作业：……”。AI 会先整理分类，不会直接生成最终反馈。</small>
                 <textarea v-model="rawLessonNote" class="auto-textarea large-text" placeholder="例如：今天讲了一次函数图像和解析式，图像题还可以，应用题找等量关系有点卡。建议：回去复盘今天错题。作业：完成讲义 3-5 题。" @input="handleRawLessonNoteInput"></textarea>
               </label>
-              <p v-if="hasOrganizedLessonNote && rawLessonNoteDirty" class="settings-warning">原始记录已修改，建议重新整理后再生成。</p>
-              <div v-if="hasOrganizedLessonNote" class="organized-field-grid">
+              <p v-if="feedbackEntryMode === 'raw' && hasOrganizedLessonNote && rawLessonNoteDirty" class="settings-warning">原始记录已修改，建议重新整理后再生成。</p>
+              <div v-if="feedbackEntryMode === 'direct' || hasOrganizedLessonNote" class="organized-field-grid">
                 <label v-for="field in FEEDBACK_CORE_FIELDS" :key="field.formField" :class="{ 'field-missing': isFieldMissing(field.formField) }">
                   <span>{{ field.title }}</span>
                   <small v-if="isFieldMissing(field.formField)">{{ fieldSupplementPrompt(field.formField) }}</small>
                   <textarea v-model="feedbackForm[field.formField]" class="auto-textarea" :placeholder="field.placeholder" @input="autoResize($event); clearOrganizedMissingField(field.formField)"></textarea>
                 </label>
               </div>
-              <p v-if="hasOrganizedLessonNote && blockingMissingFields.length" class="settings-warning">还需补充：{{ missingFieldText }}。四大板块齐全后才能生成反馈。</p>
-              <p v-if="hasOrganizedLessonNote && canGenerateFeedback" class="settings-hint">四大板块已整理完整，请确认内容无误后生成反馈。</p>
+              <p v-if="(feedbackEntryMode === 'direct' || hasOrganizedLessonNote) && blockingMissingFields.length" class="settings-warning">还需补充：{{ missingFieldText }}。四大板块齐全后才能生成反馈。</p>
+              <p v-if="(feedbackEntryMode === 'direct' || hasOrganizedLessonNote) && canGenerateFeedback" class="settings-hint">四大板块已整理完整，请确认内容无误后生成反馈。</p>
               <div class="button-row classroom-generate-row danger-row">
-                <button type="button" class="ghost-btn" :disabled="loading" @click="organizeLessonNote">{{ hasOrganizedLessonNote ? '重新整理' : '整理课堂记录' }}</button>
-                <button v-if="hasOrganizedLessonNote" type="button" class="primary-btn" :disabled="loading || !canGenerateFeedback" @click="generateDraft">生成反馈</button>
+                <button v-if="feedbackEntryMode === 'raw'" type="button" class="ghost-btn" :disabled="loading" @click="organizeLessonNote">{{ hasOrganizedLessonNote ? '重新整理' : '整理课堂记录' }}</button>
+                <button v-if="feedbackEntryMode === 'direct' || hasOrganizedLessonNote" type="button" class="primary-btn" :disabled="loading || !canGenerateFeedback" @click="generateDraft">生成反馈</button>
               </div>
             </div>
           </div>
@@ -2475,25 +2525,25 @@ onMounted(async () => {
 
           <div class="style-status-row">
             <strong>{{ currentStyleGenerationStatus }}</strong>
-            <small>样例库可保存多条，最多启用 {{ MAX_ENABLED_STYLE_EXAMPLES }} 条参与生成。</small>
+              <small>样例库可以多保存；参与生成时建议只启用 1-3 条高质量反馈，最多 {{ MAX_ENABLED_STYLE_EXAMPLES }} 条。</small>
           </div>
 
           <section class="inline-style-form">
             <strong>快捷添加样例</strong>
             <label>样例标题
-              <input v-model="inlineStyleExampleForm.title" :placeholder="`例如：${defaultStyleExampleTitle()}`" />
-              <small>建议用“学生 + 第几次 + 科目 + 日期”。留空时会用当前反馈标题，标题仅用于管理样例。</small>
+              <input v-model="inlineStyleExampleForm.title" :placeholder="styleExampleTitlePlaceholder" />
+              <small>这里只是样例库里的管理名称；留空时会用反馈样例正文第一行。若标题不在正文第一行，请手动填写。</small>
             </label>
             <label>反馈样例
-              <textarea v-model="inlineStyleExampleForm.content" class="auto-textarea large-text" placeholder="粘贴一段你写过的完整反馈" @input="autoResize"></textarea>
-              <small>AI 只学习这里的正文内容。若希望 AI 学习你的标题格式，请把标题行也一起粘贴到这里。</small>
+              <textarea v-model="inlineStyleExampleForm.content" class="auto-textarea large-text" :placeholder="styleExampleContentPlaceholder" @input="autoResize"></textarea>
+              <small>AI 只学习这里粘贴的反馈正文。若希望 AI 学习标题格式，请把标题行和正文一起放在这里。</small>
             </label>
             <label class="check-row">
               <input v-model="inlineStyleExampleForm.enabled" type="checkbox" />
-              <span>添加后立即启用，参与本次生成</span>
+              <span>保存后立即参与生成</span>
             </label>
             <div class="button-row">
-              <button type="button" class="primary-btn" :disabled="loading" @click="saveInlineStyleExample">添加风格样例</button>
+              <button type="button" class="primary-btn" :disabled="loading" @click="saveInlineStyleExample">保存到样例库</button>
             </div>
           </section>
 
@@ -2506,7 +2556,7 @@ onMounted(async () => {
               <article v-for="example in paginatedFeedbackStyleExamples" :key="example.id" class="style-example-item" role="button" tabindex="0" @click="openStyleExampleDetail(example)" @keydown.enter.prevent="openStyleExampleDetail(example)">
                 <div>
                   <strong>{{ example.title || '未命名样例' }}</strong>
-                  <small>{{ example.enabled ? '生成时参考' : '已停用' }} · {{ shortText(example.content, 88) }}</small>
+                  <small>{{ example.enabled ? '参与生成' : '仅保存' }} · {{ shortText(example.content, 88) }}</small>
                 </div>
                 <div class="button-row">
                   <button type="button" class="ghost-btn" :disabled="loading" @click.stop="toggleStyleExample(example)">{{ example.enabled ? '停用' : '启用' }}</button>
@@ -2585,6 +2635,7 @@ onMounted(async () => {
         <label>晚辅学生<select v-model="monthlyForm.student_id"><option value="">请选择学生</option><option v-for="student in eveningFeedbackStudentOptions" :key="student.id" :value="student.id">{{ student.name }}</option></select></label>
         <label>反馈类型<select v-model="monthlyForm.period_type" @change="setEveningFeedbackPeriodType(monthlyForm, monthlyForm.period_type)"><option v-for="type in EVENING_PERIOD_TYPES" :key="type.value" :value="type.value">{{ type.label }}</option></select></label>
         <label>{{ periodFieldLabel(monthlyForm.period_type) }}<input v-model="monthlyForm.period_value" :type="periodInputType(monthlyForm.period_type)" /></label>
+        <label>学科<input v-model="monthlyForm.subject" list="subject-options" placeholder="例如 数学，也可以留空" /></label>
         <section class="feedback-style-entry">
           <div>
             <strong>晚辅个人风格</strong>
@@ -2595,8 +2646,8 @@ onMounted(async () => {
             <button type="button" class="ghost-btn" :disabled="loading" @click="openFeedbackStyleModal('evening_feedback')">{{ eveningStyleExamples.length ? '管理晚辅风格' : '晚辅风格' }}</button>
           </div>
         </section>
-        <label>作业完成情况简述<textarea v-model="monthlyForm.homework_summary" class="auto-textarea" @input="autoResize"></textarea></label>
-        <div class="button-row"><button type="button" class="ghost-btn" @click="generateMonthlyDraft">生成 AI 初稿</button><button class="primary-btn">保存晚辅反馈</button></div>
+        <label>{{ subjectWorkLabel(monthlyForm.subject) }}完成情况简述<textarea v-model="monthlyForm.homework_summary" class="auto-textarea" @input="autoResize"></textarea></label>
+        <div class="button-row"><button type="button" class="ghost-btn loading-action-btn" :class="{ loading: generatingMonthlyDraft }" :disabled="loading" @click="generateMonthlyDraft">{{ generatingMonthlyDraft ? '生成中...' : '生成 AI 初稿' }}</button><button class="primary-btn" :disabled="loading">保存晚辅反馈</button></div>
         <label>AI 初稿<textarea v-model="monthlyForm.ai_draft" class="auto-textarea large-text" @input="autoResize"></textarea></label><label>最终反馈<textarea v-model="monthlyForm.final_feedback" class="auto-textarea final-text" @input="autoResize"></textarea></label>
       </form>
     </div>
@@ -2613,24 +2664,24 @@ onMounted(async () => {
         <p class="guide-hint">晚辅样例只用于晚辅反馈生成。启用后 AI 会学习你的家长沟通语气、段落详略和晚辅写法，但不会复用样例里的学生事实。</p>
         <div class="style-status-row">
           <strong>{{ currentStyleGenerationStatus }}</strong>
-          <small>样例库可保存多条，最多启用 {{ MAX_ENABLED_STYLE_EXAMPLES }} 条参与生成。</small>
+          <small>样例库可以多保存；参与生成时建议只启用 1-3 条高质量反馈，最多 {{ MAX_ENABLED_STYLE_EXAMPLES }} 条。</small>
         </div>
         <section class="inline-style-form">
           <strong>快捷添加样例</strong>
           <label>样例标题
-            <input v-model="inlineStyleExampleForm.title" placeholder="例如：晚辅反馈样例" />
-            <small>标题仅用于管理样例，不参与 AI 学习。</small>
+            <input v-model="inlineStyleExampleForm.title" :placeholder="styleExampleTitlePlaceholder" />
+            <small>这里只是样例库里的管理名称；留空时会用反馈样例正文第一行。若标题不在正文第一行，请手动填写。</small>
           </label>
           <label>反馈样例
-            <textarea v-model="inlineStyleExampleForm.content" class="auto-textarea large-text" placeholder="粘贴一段你写过的完整晚辅反馈" @input="autoResize"></textarea>
-            <small>AI 只学习这里的正文内容，不会学习样例里的学生事实。</small>
+            <textarea v-model="inlineStyleExampleForm.content" class="auto-textarea large-text" :placeholder="styleExampleContentPlaceholder" @input="autoResize"></textarea>
+            <small>AI 只学习这里粘贴的晚辅反馈正文。若希望 AI 学习标题格式，请把标题行和正文一起放在这里。</small>
           </label>
           <label class="check-row">
             <input v-model="inlineStyleExampleForm.enabled" type="checkbox" />
-            <span>添加后立即启用，参与晚辅反馈生成</span>
+            <span>保存后立即参与晚辅反馈生成</span>
           </label>
           <div class="button-row">
-            <button type="button" class="primary-btn" :disabled="loading" @click="saveInlineStyleExample">添加晚辅风格样例</button>
+            <button type="button" class="primary-btn" :disabled="loading" @click="saveInlineStyleExample">保存到晚辅样例库</button>
           </div>
         </section>
         <section class="style-library-panel">
@@ -2642,7 +2693,7 @@ onMounted(async () => {
             <article v-for="example in paginatedFeedbackStyleExamples" :key="example.id" class="style-example-item" role="button" tabindex="0" @click="openStyleExampleDetail(example)" @keydown.enter.prevent="openStyleExampleDetail(example)">
               <div>
                 <strong>{{ example.title || '未命名样例' }}</strong>
-                <small>{{ example.enabled ? '生成时参考' : '已停用' }} · {{ shortText(example.content, 88) }}</small>
+                <small>{{ example.enabled ? '参与生成' : '仅保存' }} · {{ shortText(example.content, 88) }}</small>
               </div>
               <div class="button-row">
                 <button type="button" class="ghost-btn" :disabled="loading" @click.stop="toggleStyleExample(example)">{{ example.enabled ? '停用' : '启用' }}</button>
@@ -2664,11 +2715,11 @@ onMounted(async () => {
       <article class="paper-card modal-panel feedback-detail-modal">
         <div class="modal-title"><h3>晚辅反馈详情</h3><button type="button" class="icon-btn" @click="eveningDetail = null">×</button></div>
         <template v-if="!isEditingEveningDetail">
-          <p><strong>学生：</strong>{{ eveningDetail.student_name || currentEveningStudent?.name || '未填写' }}</p><p><strong>反馈类型：</strong>{{ periodTypeLabel(eveningDetail.period_type) }}</p><p><strong>反馈时间：</strong>{{ eveningDetail.period_label }}</p><p><strong>作业情况：</strong>{{ eveningDetail.homework_summary }}</p><h4>最终反馈</h4><pre>{{ eveningDetail.final_feedback }}</pre><details><summary>查看 AI 初稿</summary><pre>{{ eveningDetail.ai_draft }}</pre></details>
+          <p><strong>学生：</strong>{{ eveningDetail.student_name || currentEveningStudent?.name || '未填写' }}</p><p><strong>反馈类型：</strong>{{ periodTypeLabel(eveningDetail.period_type) }}</p><p><strong>反馈时间：</strong>{{ eveningDetail.period_label }}</p><p><strong>学科：</strong>{{ eveningDetail.subject || '未填学科' }}</p><p><strong>{{ subjectWorkLabel(eveningDetail.subject) }}情况：</strong>{{ eveningDetail.homework_summary }}</p><h4>最终反馈</h4><pre>{{ eveningDetail.final_feedback }}</pre><details><summary>查看 AI 初稿</summary><pre>{{ eveningDetail.ai_draft }}</pre></details>
           <div class="button-row danger-row"><div class="button-row"><button class="ghost-btn" @click="isEditingEveningDetail = true; assignMonthly(monthlyEditForm, eveningDetail); resizeAllTextareas()">编辑反馈</button><button class="ghost-btn" @click="addCurrentEveningFeedbackAsStyleExample">设为晚辅风格样例</button></div><button class="danger-btn" @click="deleteEveningFeedback">删除反馈</button></div>
         </template>
         <form v-else class="feedback-editor" @submit.prevent="saveEveningDetailEdit">
-          <label>晚辅学生<select v-model="monthlyEditForm.student_id"><option v-for="student in eveningFeedbackStudentOptions" :key="student.id" :value="student.id">{{ student.name }}</option></select></label><label>反馈类型<select v-model="monthlyEditForm.period_type" @change="setEveningFeedbackPeriodType(monthlyEditForm, monthlyEditForm.period_type)"><option v-for="type in EVENING_PERIOD_TYPES" :key="type.value" :value="type.value">{{ type.label }}</option></select></label><label>{{ periodFieldLabel(monthlyEditForm.period_type) }}<input v-model="monthlyEditForm.period_value" :type="periodInputType(monthlyEditForm.period_type)" /></label><label>作业完成情况简述<textarea v-model="monthlyEditForm.homework_summary" class="auto-textarea" @input="autoResize"></textarea></label><label>AI 初稿<textarea v-model="monthlyEditForm.ai_draft" class="auto-textarea large-text" @input="autoResize"></textarea></label><label>最终反馈<textarea v-model="monthlyEditForm.final_feedback" class="auto-textarea final-text" @input="autoResize"></textarea></label>
+          <label>晚辅学生<select v-model="monthlyEditForm.student_id"><option v-for="student in eveningFeedbackStudentOptions" :key="student.id" :value="student.id">{{ student.name }}</option></select></label><label>反馈类型<select v-model="monthlyEditForm.period_type" @change="setEveningFeedbackPeriodType(monthlyEditForm, monthlyEditForm.period_type)"><option v-for="type in EVENING_PERIOD_TYPES" :key="type.value" :value="type.value">{{ type.label }}</option></select></label><label>{{ periodFieldLabel(monthlyEditForm.period_type) }}<input v-model="monthlyEditForm.period_value" :type="periodInputType(monthlyEditForm.period_type)" /></label><label>学科<input v-model="monthlyEditForm.subject" list="subject-options" placeholder="例如 数学，也可以留空" /></label><label>{{ subjectWorkLabel(monthlyEditForm.subject) }}完成情况简述<textarea v-model="monthlyEditForm.homework_summary" class="auto-textarea" @input="autoResize"></textarea></label><label>AI 初稿<textarea v-model="monthlyEditForm.ai_draft" class="auto-textarea large-text" @input="autoResize"></textarea></label><label>最终反馈<textarea v-model="monthlyEditForm.final_feedback" class="auto-textarea final-text" @input="autoResize"></textarea></label>
           <div class="button-row"><button class="primary-btn">保存修改</button><button type="button" class="ghost-btn" @click="isEditingEveningDetail = false">取消</button></div>
         </form>
       </article>

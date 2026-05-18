@@ -110,6 +110,7 @@ class EveningFeedbackGenerateRequest(BaseModel):
     student_id: int
     period_type: str = Field(pattern=r"^(day|week|month)$")
     period_value: str = Field(min_length=7, max_length=10)
+    subject: str = Field(default="", max_length=50)
     homework_summary: str = Field(min_length=5, max_length=2000)
     use_style_examples: bool = True
 
@@ -118,6 +119,7 @@ class EveningFeedbackCreate(BaseModel):
     student_id: int
     period_type: str = Field(pattern=r"^(day|week|month)$")
     period_value: str = Field(min_length=7, max_length=10)
+    subject: str = Field(default="", max_length=50)
     homework_summary: str = Field(min_length=5, max_length=2000)
     ai_draft: str = Field(min_length=1)
     final_feedback: str = Field(min_length=1)
@@ -127,6 +129,7 @@ class EveningFeedbackUpdate(BaseModel):
     student_id: int
     period_type: str = Field(pattern=r"^(day|week|month)$")
     period_value: str = Field(min_length=7, max_length=10)
+    subject: str = Field(default="", max_length=50)
     homework_summary: str = Field(min_length=5, max_length=2000)
     ai_draft: str = Field(min_length=1)
     final_feedback: str = Field(min_length=1)

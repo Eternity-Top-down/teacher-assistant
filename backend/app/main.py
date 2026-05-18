@@ -228,7 +228,7 @@ def ensure_style_example_enable_slot(
     exclude_example_id: int | None = None,
 ) -> None:
     if count_enabled_style_examples(teacher_id, feedback_type, exclude_example_id) >= MAX_ENABLED_STYLE_EXAMPLES:
-        raise HTTPException(status_code=400, detail="最多启用 5 条风格样例参与生成，请先停用一条样例")
+        raise HTTPException(status_code=400, detail="最多启用 5 条风格样例参与生成，建议 1-3 条；请先停用一条差异较大的样例")
 
 
 def require_style_example(example_id: int, teacher_id: int) -> dict:
@@ -677,6 +677,7 @@ def create_feedback(student_id: int, payload: FeedbackCreate, teacher: dict = Cu
 def search_feedbacks(
     start_date: str | None = Query(default=None),
     end_date: str | None = Query(default=None),
+    student_name: str = Query(default=""),
     teacher: dict = CurrentTeacher,
 ):
     conditions = ["f.teacher_id = ?"]
@@ -688,6 +689,9 @@ def search_feedbacks(
     if end_date:
         conditions.append("f.lesson_time <= ?")
         params.append(f"{end_date}T23:59:59")
+    if student_name.strip():
+        conditions.append("s.name LIKE ?")
+        params.append(f"%{student_name.strip()}%")
 
     with get_db() as db:
         rows = db.execute(
@@ -970,6 +974,7 @@ def search_evening_feedbacks(
     start_date: str = Query(default=""),
     end_date: str = Query(default=""),
     period_type: str = Query(default=""),
+    student_name: str = Query(default=""),
     teacher: dict = CurrentTeacher,
 ):
     query = """
@@ -985,6 +990,9 @@ def search_evening_feedbacks(
             raise HTTPException(status_code=400, detail="反馈类型无效")
         query += " AND f.period_type = ?"
         params.append(period_type)
+    if student_name.strip():
+        query += " AND s.name LIKE ?"
+        params.append(f"%{student_name.strip()}%")
     if start_date:
         query += " AND f.period_end >= ?"
         params.append(start_date[:10])
@@ -1016,6 +1024,7 @@ async def generate_evening_draft(
             school=student["school"],
             period_type=period["period_type"],
             period_label=period["period_label"],
+            subject=payload.subject,
             homework_summary=payload.homework_summary,
             style_examples=list_enabled_style_examples(teacher["id"], "evening_feedback")
             if payload.use_style_examples
@@ -1047,10 +1056,10 @@ def create_evening_feedback(
                 """
                 INSERT INTO evening_feedbacks (
                     teacher_id, student_id, period_type, period_value,
-                    period_start, period_end, period_label, homework_summary,
+                    period_start, period_end, period_label, subject, homework_summary,
                     ai_draft, final_feedback, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     teacher["id"],
@@ -1060,6 +1069,7 @@ def create_evening_feedback(
                     period["period_start"],
                     period["period_end"],
                     period["period_label"],
+                    payload.subject,
                     payload.homework_summary,
                     payload.ai_draft,
                     payload.final_feedback,
@@ -1092,7 +1102,7 @@ def update_evening_feedback(
                 UPDATE evening_feedbacks
                 SET student_id = ?, period_type = ?, period_value = ?,
                     period_start = ?, period_end = ?, period_label = ?,
-                    homework_summary = ?, ai_draft = ?, final_feedback = ?, updated_at = ?
+                    subject = ?, homework_summary = ?, ai_draft = ?, final_feedback = ?, updated_at = ?
                 WHERE id = ? AND teacher_id = ?
                 """,
                 (
@@ -1102,6 +1112,7 @@ def update_evening_feedback(
                     period["period_start"],
                     period["period_end"],
                     period["period_label"],
+                    payload.subject,
                     payload.homework_summary,
                     payload.ai_draft,
                     payload.final_feedback,

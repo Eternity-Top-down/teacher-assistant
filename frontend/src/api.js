@@ -15,6 +15,7 @@ const FIELD_LABELS = {
   ai_draft: 'AI 初稿',
   final_feedback: '最终反馈',
   school: '学校',
+  subject: '学科',
   names_text: '学生名单',
   period_type: '反馈类型',
   period_value: '反馈时间',

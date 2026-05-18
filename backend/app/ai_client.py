@@ -461,18 +461,21 @@ def fallback_evening_feedback(
     student_name: str,
     period_type: str,
     period_label: str,
+    subject: str,
     homework_summary: str,
 ) -> str:
     display_name = student_display_name(student_name)
     period_word = {"day": "当天", "week": "本周", "month": "本月"}.get(period_type, "本次")
     next_word = {"day": "后续晚辅", "week": "下周晚辅", "month": "下个月晚辅"}.get(period_type, "后续晚辅")
-    return f"""{display_name}{period_label}晚辅作业完成情况反馈：
+    subject_text = f"{subject.strip()}作业" if subject.strip() else "作业"
+    habit_text = f"{subject.strip()}作业习惯" if subject.strip() else "作业习惯"
+    return f"""{period_label}{display_name}{subject_text}完成情况反馈：
 
-{period_word}晚辅中，{display_name}的作业完成情况主要表现为：{homework_summary}
+{period_word}晚辅中，{display_name}的{subject_text}完成情况主要表现为：{homework_summary}
 
 从整体情况来看，孩子的晚辅作业状态可以结合以上情况继续跟进。后续完成作业时，建议继续关注订正质量、计算细节和独立思考过程，遇到不会的题目及时标记并提问，避免问题积累。
 
-{next_word}会继续关注{display_name}的作业完成质量和错题订正情况，帮助孩子逐步养成更稳定的数学作业习惯。"""
+{next_word}会继续关注{display_name}的{subject_text}完成质量和错题订正情况，帮助孩子逐步养成更稳定的{habit_text}。"""
 
 
 async def generate_evening_feedback(
@@ -481,6 +484,7 @@ async def generate_evening_feedback(
     school: str,
     period_type: str,
     period_label: str,
+    subject: str,
     homework_summary: str,
     style_examples: list[dict] | None = None,
     ai_config: AIConfig | None = None,
@@ -492,10 +496,12 @@ async def generate_evening_feedback(
         provider="env",
     )
     if not config.api_key:
-        return fallback_evening_feedback(student_name, period_type, period_label, homework_summary)
+        return fallback_evening_feedback(student_name, period_type, period_label, subject, homework_summary)
 
     display_name = student_display_name(student_name)
     student_info = "，".join(part for part in [student_name, grade, school] if part)
+    subject_name = subject.strip()
+    feedback_topic = f"{period_label}{display_name}的{subject_name}作业完成情况" if subject_name else f"{period_label}{display_name}的作业完成情况"
     period_rule = {
         "day": "按天反馈：强调当天晚辅作业完成情况，语言更短、更具体，适合当天发给家长。",
         "week": "按周反馈：总结本周晚辅作业完成情况，覆盖一周内完成度、订正、稳定问题和下周提醒。",
@@ -545,7 +551,8 @@ async def generate_evening_feedback(
 7. 如果老师输入信息很少，宁可写短一点、稳一点，不要凑成长篇，不要使用“整体来看”“继续保持”“逐步提升”等空泛套话撑篇幅。
 8. 后续提醒只能来自老师输入或由输入直接推出的通用提醒，例如“订正错题”“复盘出错原因”“提高完成效率”；不要新增具体作业任务。
 9. 正文称呼学生时只使用“{display_name}”，不要使用登记全名“{student_name}”，也不要补全或猜测其他姓名。
-10. {period_rule}
+10. 如果学科已填写，反馈标题或开头可自然呈现为“{feedback_topic}”；如果学科未填写，不要自行猜测学科，也不要默认写“数学”。
+11. {period_rule}
 {style_rule}
 
 {length_rule}
@@ -557,6 +564,8 @@ async def generate_evening_feedback(
 反馈使用称呼：{display_name}
 反馈时间：{period_label}
 反馈口径：{period_name}晚辅
+反馈主题：{feedback_topic}
+学科：{subject_name or "未填写，请不要自行补学科"}
 作业完成情况简述：
 {homework_summary}
 """.strip()
@@ -587,6 +596,7 @@ async def generate_evening_monthly_feedback(
     school: str,
     feedback_month: str,
     homework_summary: str,
+    subject: str = "",
     ai_config: AIConfig | None = None,
 ) -> str:
     return await generate_evening_feedback(
@@ -595,6 +605,7 @@ async def generate_evening_monthly_feedback(
         school=school,
         period_type="month",
         period_label=feedback_month,
+        subject=subject,
         homework_summary=homework_summary,
         ai_config=ai_config,
     )

@@ -110,6 +110,7 @@ def init_db() -> None:
                 period_start TEXT NOT NULL,
                 period_end TEXT NOT NULL,
                 period_label TEXT NOT NULL,
+                subject TEXT NOT NULL DEFAULT '',
                 homework_summary TEXT NOT NULL,
                 ai_draft TEXT NOT NULL,
                 final_feedback TEXT NOT NULL,
@@ -244,6 +245,12 @@ def init_db() -> None:
             db.execute("PRAGMA foreign_keys = ON")
             if violations:
                 raise RuntimeError("evening_students migration failed foreign key check")
+        evening_feedback_columns = {
+            row["name"]
+            for row in db.execute("PRAGMA table_info(evening_feedbacks)").fetchall()
+        }
+        if "subject" not in evening_feedback_columns:
+            db.execute("ALTER TABLE evening_feedbacks ADD COLUMN subject TEXT NOT NULL DEFAULT ''")
         legacy_evening_feedback_table = db.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'evening_monthly_feedbacks'"
         ).fetchone()
