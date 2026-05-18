@@ -239,7 +239,7 @@ function styleEnabledStatus(count, disabledText, standardText) {
   if (count && disabledText) return disabledText
   if (!count) return standardText
   if (count === 1) return '已选择 1 条样例参与生成'
-  if (count <= 3) return `已选择 ${count} 条样例参与生成，建议优先选择你最满意的反馈`
+  if (count <= 3) return `已选择 ${count} 条样例参与生成，建议优先选择你满意且愿意复用的反馈`
   return `已选择 ${count} 条样例参与生成，数量偏多时可能影响篇幅和语气稳定`
 }
 
@@ -277,15 +277,15 @@ const styleExampleContentPlaceholder = computed(() =>
     ? '例如：\n小明5月数学晚辅反馈\n\n本月晚辅中，小明的数学作业整体完成较认真，订正也比之前更及时……'
     : '例如：\n小明第3次数学课（5.12）\n\n📖1.课堂学习内容：\n本节课主要复习了一次函数图像与解析式……\n\n🌟2.课堂表现与知识掌握情况：\n……'
 )
-const styleExampleTitleHelp = computed(() =>
-  activeStyleExampleType.value === 'evening_feedback'
-    ? '这里只是样例保存在晚辅样例库里的管理名称；不会被 AI 当成反馈标题学习。标题不在正文第一行时，建议手动填写。'
-    : '这里只是样例保存在一对一样例库里的管理名称；不会被 AI 当成反馈标题学习。标题不在正文第一行时，建议手动填写。'
-)
+const styleExampleTitleAutoHelp = '这里只是样例库里的管理名称，不会被 AI 当成反馈标题学习；留空时会用反馈样例正文第一行。若标题不在正文第一行，请手动填写。'
+const styleExampleTitleHelp = computed(() => styleExampleTitleAutoHelp)
 const styleExampleContentHelp = computed(() =>
   activeStyleExampleType.value === 'evening_feedback'
     ? 'AI 只学习这里粘贴的晚辅反馈正文。若希望 AI 学习标题格式，请把标题行和正文一起放在这里；样例标题不会参与学习。'
     : 'AI 只学习这里粘贴的反馈正文。若希望 AI 学习标题格式，请把标题行和正文一起放在这里；样例标题不会参与学习。'
+)
+const styleExampleSelectionHelp = computed(() =>
+  `样例库可以多保存；参与生成时建议只启用 1-3 条你满意且愿意复用的反馈，最多 ${MAX_ENABLED_STYLE_EXAMPLES} 条。`
 )
 const missingFeedbackFields = computed(() => FEEDBACK_CORE_FIELDS.filter((field) => !String(feedbackForm[field.formField] || '').trim()).map((field) => field.formField))
 const blockingMissingFields = computed(() => [...new Set([...organizeMissingFields.value, ...missingFeedbackFields.value])])
@@ -2276,7 +2276,7 @@ onMounted(async () => {
                 <small>不同反馈类型使用独立样例库。以后增加班课反馈时，也会在这里单独切换管理。</small>
               </label>
 
-              <p class="settings-hint">{{ styleSettingsHint }} 样例库可以多保存，方便以后管理；真正参与生成时，建议只启用 1-3 条你最满意、最想让 AI 模仿的高质量反馈，最多 {{ MAX_ENABLED_STYLE_EXAMPLES }} 条。</p>
+              <p class="settings-hint">{{ styleSettingsHint }} {{ styleExampleSelectionHelp }}</p>
 
               <label>样例标题
                 <input v-model="styleExampleForm.title" :placeholder="styleExampleTitlePlaceholder" />
@@ -2376,7 +2376,7 @@ onMounted(async () => {
         <form v-else class="feedback-editor" @submit.prevent="saveStyleExampleEdit">
           <label>样例标题
             <input v-model="styleExampleEditForm.title" placeholder="例如：某学生第3次数学课（4.26）" />
-            <small>这里只是样例库里的管理名称；不会被 AI 当成反馈标题学习。标题不在正文第一行时，建议手动填写。</small>
+            <small>{{ styleExampleTitleAutoHelp }}</small>
           </label>
           <label>反馈样例
             <textarea v-model="styleExampleEditForm.content" class="auto-textarea final-text" @input="autoResize"></textarea>
@@ -2525,14 +2525,14 @@ onMounted(async () => {
 
           <div class="style-status-row">
             <strong>{{ currentStyleGenerationStatus }}</strong>
-              <small>样例库可以多保存；参与生成时建议只启用 1-3 条高质量反馈，最多 {{ MAX_ENABLED_STYLE_EXAMPLES }} 条。</small>
+              <small>{{ styleExampleSelectionHelp }}</small>
           </div>
 
           <section class="inline-style-form">
             <strong>快捷添加样例</strong>
             <label>样例标题
               <input v-model="inlineStyleExampleForm.title" :placeholder="styleExampleTitlePlaceholder" />
-              <small>这里只是样例库里的管理名称；留空时会用反馈样例正文第一行。若标题不在正文第一行，请手动填写。</small>
+              <small>{{ styleExampleTitleAutoHelp }}</small>
             </label>
             <label>反馈样例
               <textarea v-model="inlineStyleExampleForm.content" class="auto-textarea large-text" :placeholder="styleExampleContentPlaceholder" @input="autoResize"></textarea>
@@ -2664,13 +2664,13 @@ onMounted(async () => {
         <p class="guide-hint">晚辅样例只用于晚辅反馈生成。启用后 AI 会学习你的家长沟通语气、段落详略和晚辅写法，但不会复用样例里的学生事实。</p>
         <div class="style-status-row">
           <strong>{{ currentStyleGenerationStatus }}</strong>
-          <small>样例库可以多保存；参与生成时建议只启用 1-3 条高质量反馈，最多 {{ MAX_ENABLED_STYLE_EXAMPLES }} 条。</small>
+          <small>{{ styleExampleSelectionHelp }}</small>
         </div>
         <section class="inline-style-form">
           <strong>快捷添加样例</strong>
           <label>样例标题
             <input v-model="inlineStyleExampleForm.title" :placeholder="styleExampleTitlePlaceholder" />
-            <small>这里只是样例库里的管理名称；留空时会用反馈样例正文第一行。若标题不在正文第一行，请手动填写。</small>
+            <small>{{ styleExampleTitleAutoHelp }}</small>
           </label>
           <label>反馈样例
             <textarea v-model="inlineStyleExampleForm.content" class="auto-textarea large-text" :placeholder="styleExampleContentPlaceholder" @input="autoResize"></textarea>
