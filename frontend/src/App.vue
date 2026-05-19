@@ -17,6 +17,8 @@ const teacher = ref(null)
 const route = ref(window.location.hash || '#/one-on-one')
 const loading = ref(false)
 const generatingMonthlyDraft = ref(false)
+const generatingEveningBatch = ref(false)
+const savingEveningBatch = ref(false)
 const message = ref('')
 const authMode = ref('login')
 
@@ -56,6 +58,8 @@ const showAccountMenu = ref(false)
 const showApiOnboarding = ref(false)
 const showSettingsGuide = ref(false)
 const showFeedbackStyleModal = ref(false)
+const showAIConfigForm = ref(false)
+const showEveningBatchWorkbench = ref(false)
 const activeStyleExampleType = ref('one_on_one')
 const showWritingReference = ref(false)
 const feedbackEntryMode = ref('raw')
@@ -145,12 +149,19 @@ const bulkForm = reactive({ names_text: '' })
 const eveningStudentForm = reactive({ name: '', grade: '', school: '' })
 const monthlyForm = reactive(newMonthlyFeedback())
 const monthlyEditForm = reactive(newMonthlyFeedback())
+const eveningBatchForm = reactive(newEveningBatchForm())
+const eveningBatchRows = ref([])
+const generationModelKey = ref('')
+const settingsModelKey = ref('')
 const aiSettingsForm = reactive({
+  id: null,
+  name: '',
   provider: 'deepseek',
   base_url: 'https://api.deepseek.com',
   model: 'deepseek-v4-flash',
   api_key: '',
   clear_api_key: false,
+  make_active: true,
 })
 const styleExampleForm = reactive({ title: '', content: '', enabled: false })
 const inlineStyleExampleForm = reactive({ title: '', content: '', enabled: false })
@@ -210,6 +221,12 @@ const AI_PRESETS = {
 const isAuthed = computed(() => Boolean(teacher.value))
 const teacherInitial = computed(() => (teacher.value?.email || 'T').slice(0, 1).toUpperCase())
 const selectedAIPreset = computed(() => AI_PRESETS[aiSettingsForm.provider] || AI_PRESETS.custom)
+const aiModelOptions = computed(() => aiSettings.value?.models || [])
+const aiPersonalConfigs = computed(() => aiSettings.value?.configs || [])
+const activeAIModel = computed(() => aiSettings.value?.active_model || null)
+const aiTrialRemaining = computed(() => aiSettings.value?.trial_quota_remaining ?? 0)
+const aiTrialTotal = computed(() => aiSettings.value?.trial_quota_total ?? 0)
+const selectedGenerationModel = computed(() => aiModelOptions.value.find((model) => aiModelKey(model) === generationModelKey.value) || activeAIModel.value)
 const currentView = computed(() => {
   if (!isAuthed.value) return 'auth'
   if (route.value === '#/settings') return 'settings'
@@ -301,6 +318,14 @@ const eveningFeedbackStudentOptions = computed(() => {
   }
   return currentEveningStudent.value ? [currentEveningStudent.value] : []
 })
+const eveningBatchFilledRows = computed(() => eveningBatchRows.value.filter((row) => row.homework_summary.trim()))
+const eveningBatchGenerateCount = computed(() =>
+  eveningBatchFilledRows.value.filter((row) => !row.final_feedback.trim() || row.selected_for_generate).length
+)
+const eveningBatchSaveCount = computed(() =>
+  eveningBatchRows.value.filter((row) => row.final_feedback.trim() && eveningBatchRowDirty(row)).length
+)
+const eveningBatchDoneCount = computed(() => eveningBatchRows.value.filter((row) => row.feedback_id).length)
 const writingReferenceStyle = computed(() => ({
   left: `${writingReferenceFrame.left}px`,
   top: `${writingReferenceFrame.top}px`,
@@ -459,6 +484,14 @@ function newMonthlyFeedback() {
     homework_summary: '',
     ai_draft: '',
     final_feedback: '',
+  }
+}
+
+function newEveningBatchForm() {
+  return {
+    period_type: 'day',
+    period_value: currentDateInput(),
+    default_subject: '',
   }
 }
 
@@ -777,6 +810,74 @@ function subjectWorkLabel(subject) {
   return subject?.trim() ? `${subject.trim()}作业` : '作业'
 }
 
+function eveningBatchFingerprint(row) {
+  return JSON.stringify({
+    feedback_id: row.feedback_id || null,
+    subject: row.subject || '',
+    homework_summary: row.homework_summary || '',
+    ai_draft: row.ai_draft || '',
+    final_feedback: row.final_feedback || '',
+  })
+}
+
+function eveningBatchRowDirty(row) {
+  return eveningBatchFingerprint(row) !== row.original_fingerprint
+}
+
+function eveningBatchStatusText(row) {
+  if (row.status === 'generating') return '生成中'
+  if (row.status === 'saving') return '保存中'
+  if (row.status === 'error') return row.error || '处理失败'
+  if (eveningBatchRowDirty(row)) return row.feedback_id ? '已修改' : '待保存'
+  if (row.feedback_id) return '已保存'
+  if (row.homework_summary.trim()) return '可生成'
+  return '未填写'
+}
+
+function makeEveningBatchRow(item) {
+  const feedback = item.feedback || {}
+  const row = {
+    student_id: item.student.id,
+    student_name: item.student.name,
+    grade: item.student.grade || '',
+    school: item.student.school || '',
+    feedback_id: feedback.id || null,
+    subject: feedback.subject || eveningBatchForm.default_subject || '',
+    homework_summary: feedback.homework_summary || '',
+    ai_draft: feedback.ai_draft || '',
+    final_feedback: feedback.final_feedback || '',
+    selected_for_generate: !feedback.final_feedback,
+    status: feedback.id ? 'saved' : 'idle',
+    error: '',
+    last_default_subject: feedback.subject ? '' : eveningBatchForm.default_subject,
+    original_fingerprint: '',
+  }
+  row.original_fingerprint = eveningBatchFingerprint(row)
+  return row
+}
+
+function markEveningBatchRowEdited(row) {
+  row.error = ''
+  row.status = eveningBatchRowDirty(row) ? 'dirty' : (row.feedback_id ? 'saved' : 'idle')
+  if (row.homework_summary.trim() && !row.final_feedback.trim()) row.selected_for_generate = true
+}
+
+function applyDefaultSubjectToEveningBatch() {
+  eveningBatchRows.value.forEach((row) => {
+    if (!row.subject.trim() || row.subject === row.last_default_subject) {
+      row.subject = eveningBatchForm.default_subject
+      row.last_default_subject = eveningBatchForm.default_subject
+      markEveningBatchRowEdited(row)
+    }
+  })
+}
+
+async function setEveningBatchPeriodType(type) {
+  eveningBatchForm.period_type = type
+  eveningBatchForm.period_value = defaultPeriodValue(type)
+  await loadEveningBatchFeedbacks()
+}
+
 function routeId(index = 2) {
   return route.value.split('/')[index]
 }
@@ -861,16 +962,80 @@ function applyAIPreset() {
 
 function assignAISettings(settings) {
   aiSettings.value = settings
-  aiSettingsForm.provider = settings?.provider || 'deepseek'
-  aiSettingsForm.base_url = settings?.base_url || AI_PRESETS.deepseek.base_url
-  aiSettingsForm.model = settings?.model || AI_PRESETS.deepseek.model
+  syncGenerationModelSelection()
+  syncSettingsModelSelection()
+  resetAIConfigForm()
+}
+
+function aiModelKey(model) {
+  if (!model) return ''
+  return model.type === 'personal' ? `personal-${model.id}` : 'platform'
+}
+
+function syncGenerationModelSelection() {
+  const options = aiSettings.value?.models || []
+  if (generationModelKey.value && options.some((model) => aiModelKey(model) === generationModelKey.value)) return
+  generationModelKey.value = aiModelKey(aiSettings.value?.active_model || options[0])
+}
+
+function syncSettingsModelSelection() {
+  settingsModelKey.value = aiModelKey(aiSettings.value?.active_model || aiSettings.value?.models?.[0])
+}
+
+async function ensureAISettingsLoaded() {
+  if (aiSettings.value?.models?.length) {
+    syncGenerationModelSelection()
+    return
+  }
+  await loadAISettings()
+}
+
+function selectedGenerationModelPayload() {
+  const model = selectedGenerationModel.value
+  if (!model) return {}
+  return {
+    model_type: model.type,
+    config_id: model.type === 'personal' ? model.id : null,
+  }
+}
+
+function generationModelHint() {
+  const model = selectedGenerationModel.value
+  if (!model) return '请先到设置页选择或添加可用模型'
+  if (model.type === 'platform') return `平台默认模型 · 剩余 ${aiTrialRemaining.value} / ${aiTrialTotal.value} 次`
+  return `${model.provider} · ${model.model}`
+}
+
+function resetAIConfigForm(source = null) {
+  aiSettingsForm.id = source?.id || null
+  aiSettingsForm.name = source?.name || ''
+  aiSettingsForm.provider = source?.provider || 'deepseek'
+  aiSettingsForm.base_url = source?.base_url || AI_PRESETS.deepseek.base_url
+  aiSettingsForm.model = source?.model || AI_PRESETS.deepseek.model
   aiSettingsForm.api_key = ''
   aiSettingsForm.clear_api_key = false
+  aiSettingsForm.make_active = true
+}
+
+async function selectSettingsAIModel() {
+  const model = aiModelOptions.value.find((item) => aiModelKey(item) === settingsModelKey.value)
+  if (!model || model.is_active || !model.has_api_key) return
+  await selectAIModel(model)
+}
+
+function openNewAIConfigForm() {
+  resetAIConfigForm()
+  showAIConfigForm.value = true
+}
+
+function closeAIConfigForm() {
+  resetAIConfigForm()
+  showAIConfigForm.value = false
 }
 
 async function loadAISettings() {
   const data = await request('/settings/ai')
-  assignAISettings(data.settings)
+  assignAISettings(data)
 }
 
 async function loadStyleExamples() {
@@ -882,20 +1047,26 @@ async function loadStyleExamples() {
 async function saveAISettings() {
   if (!aiSettingsForm.base_url.trim()) return showMessage('请填写 Base URL')
   if (!aiSettingsForm.model.trim()) return showMessage('请填写模型名')
+  if (!aiSettingsForm.id && !aiSettingsForm.api_key.trim()) return showMessage('新增个人模型配置需要填写 API Key')
   loading.value = true
   try {
-    const data = await request('/settings/ai', {
-      method: 'PUT',
+    const wasEditing = Boolean(aiSettingsForm.id)
+    const path = aiSettingsForm.id ? `/settings/ai/configs/${aiSettingsForm.id}` : '/settings/ai/configs'
+    const data = await request(path, {
+      method: aiSettingsForm.id ? 'PUT' : 'POST',
       body: JSON.stringify({
+        name: aiSettingsForm.name,
         provider: aiSettingsForm.provider,
         base_url: aiSettingsForm.base_url,
         model: aiSettingsForm.model,
         api_key: aiSettingsForm.api_key,
         clear_api_key: aiSettingsForm.clear_api_key,
+        make_active: aiSettingsForm.make_active,
       }),
     })
-    assignAISettings(data.settings)
-    showMessage('AI 设置已保存')
+    assignAISettings(data)
+    showAIConfigForm.value = false
+    showMessage(wasEditing ? '模型配置已更新' : '模型配置已保存')
   } catch (error) {
     showMessage(error.message)
   } finally {
@@ -911,6 +1082,7 @@ async function testAISettings() {
     const data = await request('/settings/ai/test', {
       method: 'POST',
       body: JSON.stringify({
+        config_id: aiSettingsForm.id,
         provider: aiSettingsForm.provider,
         base_url: aiSettingsForm.base_url,
         model: aiSettingsForm.model,
@@ -926,10 +1098,49 @@ async function testAISettings() {
 }
 
 async function clearAIKey() {
-  if (!window.confirm('确定清除已保存的 API Key 吗？清除后需要重新配置才能生成 AI 反馈。')) return
+  if (!aiSettingsForm.id) return showMessage('请先选择要编辑的个人模型配置')
+  if (!window.confirm('确定清除这条配置的 API Key 吗？清除后这条配置将无法生成 AI 反馈。')) return
   aiSettingsForm.api_key = ''
   aiSettingsForm.clear_api_key = true
   await saveAISettings()
+}
+
+function editAIConfig(config) {
+  resetAIConfigForm(config)
+  showAIConfigForm.value = true
+}
+
+async function selectAIModel(model) {
+  loading.value = true
+  try {
+    const data = await request('/settings/ai/select', {
+      method: 'POST',
+      body: JSON.stringify({
+        model_type: model.type,
+        config_id: model.type === 'personal' ? model.id : null,
+      }),
+    })
+    assignAISettings(data)
+    showMessage(`已切换到 ${model.name}`)
+  } catch (error) {
+    showMessage(error.message)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function deleteAIConfig(config) {
+  if (!window.confirm(`确定删除模型配置“${config.name}”吗？`)) return
+  loading.value = true
+  try {
+    const data = await request(`/settings/ai/configs/${config.id}`, { method: 'DELETE' })
+    assignAISettings(data)
+    showMessage('模型配置已删除')
+  } catch (error) {
+    showMessage(error.message)
+  } finally {
+    loading.value = false
+  }
 }
 
 function enabledStyleExampleCountFor(type) {
@@ -1197,7 +1408,7 @@ async function openCreateFeedback() {
   const displayName = studentDisplayName(currentStudent.value?.name || '学生')
   feedbackForm.lesson_title = `${displayName}第${feedbacks.value.length + 1}次${subject}课`
   try {
-    await loadStyleExamples()
+    await Promise.all([loadStyleExamples(), ensureAISettingsLoaded()])
   } catch (error) {
     showMessage(error.message)
   }
@@ -1350,6 +1561,7 @@ async function organizeLessonNote() {
         performance_summary: feedbackForm.performance_summary,
         advice_summary: feedbackForm.advice_summary,
         homework_plan: feedbackForm.homework_plan,
+        ...selectedGenerationModelPayload(),
       }),
     })
     feedbackForm.lesson_summary = data.lesson_summary || ''
@@ -1361,6 +1573,7 @@ async function organizeLessonNote() {
     rawLessonNoteDirty.value = false
     openFeedbackPanel('content')
     await resizeAllTextareas()
+    await loadAISettings()
     saveFeedbackDraft()
     showMessage(organizeMissingFields.value.length ? `还需补充：${missingFieldText.value}` : '课堂记录已整理完整，可以生成反馈')
   } catch (error) {
@@ -1388,6 +1601,7 @@ async function generateDraft() {
         lesson_title: titleForGenerate(feedbackForm.lesson_title, feedbackForm.lesson_time),
         ...contentPayload,
         use_style_examples: useStyleExamplesForDraft.value,
+        ...selectedGenerationModelPayload(),
       }),
     })
     feedbackForm.ai_draft = data.draft
@@ -1395,6 +1609,7 @@ async function generateDraft() {
     feedbackForm.lesson_title = titleForGenerate(feedbackForm.lesson_title, feedbackForm.lesson_time)
     feedbackPanels.final = true
     await resizeAllTextareas()
+    await loadAISettings()
     saveFeedbackDraft()
     showMessage('反馈已生成，可直接修改或复制')
   } catch (error) {
@@ -1681,6 +1896,7 @@ async function deleteGroupClass() {
 }
 
 async function loadEveningClassContext() {
+  showEveningBatchWorkbench.value = false
   const id = route.value.split('/')[3]
   const [classData, studentData] = await Promise.all([
     request(`/evening/classes/${id}`),
@@ -1688,6 +1904,135 @@ async function loadEveningClassContext() {
   ])
   currentClass.value = classData.class
   eveningStudents.value = studentData.students
+  await ensureAISettingsLoaded()
+  await loadEveningBatchFeedbacks()
+}
+
+async function loadEveningBatchFeedbacks() {
+  if (!currentClass.value?.id || !eveningBatchForm.period_value) return
+  const params = new URLSearchParams({
+    period_type: eveningBatchForm.period_type,
+    period_value: eveningBatchForm.period_value,
+  })
+  const data = await request(`/evening/classes/${currentClass.value.id}/feedbacks/batch?${params}`)
+  eveningBatchRows.value = data.items.map(makeEveningBatchRow)
+  await resizeAllTextareas()
+}
+
+async function generateEveningBatchDrafts(rows = null) {
+  const targetRows = rows || eveningBatchRows.value.filter((row) =>
+    row.homework_summary.trim() && (!row.final_feedback.trim() || row.selected_for_generate)
+  )
+  if (!targetRows.length) return showMessage('请先填写需要生成的学生情况')
+  generatingEveningBatch.value = true
+  targetRows.forEach((row) => {
+    row.status = 'generating'
+    row.error = ''
+  })
+  try {
+    const data = await request(`/evening/classes/${currentClass.value.id}/feedbacks/batch/generate`, {
+      method: 'POST',
+      body: JSON.stringify({
+        period_type: eveningBatchForm.period_type,
+        period_value: eveningBatchForm.period_value,
+        use_style_examples: useStyleExamplesForMonthlyDraft.value,
+        ...selectedGenerationModelPayload(),
+        items: targetRows.map((row) => ({
+          student_id: row.student_id,
+          subject: row.subject,
+          homework_summary: row.homework_summary,
+        })),
+      }),
+    })
+    const resultMap = new Map(data.results.map((result) => [result.student_id, result]))
+    targetRows.forEach((row) => {
+      const result = resultMap.get(row.student_id)
+      if (result?.ok) {
+        row.ai_draft = result.draft
+        row.final_feedback = result.draft
+        row.selected_for_generate = false
+        row.status = 'dirty'
+        row.error = ''
+      } else {
+        row.status = 'error'
+        row.error = result?.error || '生成失败'
+      }
+    })
+    const successCount = data.results.filter((result) => result.ok).length
+    await loadAISettings()
+    showMessage(`已生成 ${successCount} 条晚辅初稿`)
+  } catch (error) {
+    targetRows.forEach((row) => {
+      row.status = 'error'
+      row.error = error.message
+    })
+    showMessage(error.message)
+  } finally {
+    generatingEveningBatch.value = false
+    await resizeAllTextareas()
+  }
+}
+
+async function generateEveningBatchRow(row) {
+  if (!row.homework_summary.trim()) return showMessage('请先填写这名学生的情况')
+  row.selected_for_generate = true
+  await generateEveningBatchDrafts([row])
+}
+
+async function saveEveningBatchFeedbacks() {
+  const targetRows = eveningBatchRows.value.filter((row) => row.final_feedback.trim() && eveningBatchRowDirty(row))
+  if (!targetRows.length) return showMessage('没有需要保存的晚辅反馈')
+  savingEveningBatch.value = true
+  targetRows.forEach((row) => {
+    row.status = 'saving'
+    row.error = ''
+  })
+  try {
+    const data = await request(`/evening/classes/${currentClass.value.id}/feedbacks/batch`, {
+      method: 'POST',
+      body: JSON.stringify({
+        period_type: eveningBatchForm.period_type,
+        period_value: eveningBatchForm.period_value,
+        items: targetRows.map((row) => ({
+          feedback_id: row.feedback_id,
+          student_id: row.student_id,
+          subject: row.subject,
+          homework_summary: row.homework_summary,
+          ai_draft: row.ai_draft,
+          final_feedback: row.final_feedback,
+        })),
+      }),
+    })
+    const resultMap = new Map(data.results.map((result) => [result.student_id, result]))
+    targetRows.forEach((row) => {
+      const result = resultMap.get(row.student_id)
+      if (result?.ok) {
+        const feedback = result.feedback || {}
+        row.feedback_id = feedback.id || row.feedback_id
+        row.subject = feedback.subject || row.subject
+        row.homework_summary = feedback.homework_summary || row.homework_summary
+        row.ai_draft = feedback.ai_draft || row.ai_draft
+        row.final_feedback = feedback.final_feedback || row.final_feedback
+        row.selected_for_generate = false
+        row.error = ''
+        row.status = 'saved'
+        row.original_fingerprint = eveningBatchFingerprint(row)
+      } else {
+        row.status = 'error'
+        row.error = result?.error || '保存失败'
+      }
+    })
+    await loadEveningClassContext()
+    showMessage(`已保存 ${data.results.filter((result) => result.ok).length} 条晚辅反馈`)
+  } catch (error) {
+    targetRows.forEach((row) => {
+      row.status = 'error'
+      row.error = error.message
+    })
+    showMessage(error.message)
+  } finally {
+    savingEveningBatch.value = false
+  }
 }
 
 async function bulkCreateEveningStudents() {
@@ -1700,6 +2045,7 @@ async function bulkCreateEveningStudents() {
     })
     bulkForm.names_text = ''
     showBulkModal.value = false
+    showEveningBatchWorkbench.value = false
     await loadEveningClassContext()
     showMessage(`已录入 ${data.created_count} 名学生`)
   } catch (error) {
@@ -1763,6 +2109,7 @@ async function deleteEveningStudent() {
 function openMonthlyModal(student = null) {
   resetMonthlyForm()
   useStyleExamplesForMonthlyDraft.value = true
+  ensureAISettingsLoaded().catch((error) => showMessage(error.message))
   const selectedStudent = student || currentEveningStudent.value || eveningStudents.value[0]
   monthlyForm.student_id = selectedStudent?.id || ''
   showMonthlyModal.value = true
@@ -1786,11 +2133,13 @@ async function generateMonthlyDraft() {
         subject: monthlyForm.subject,
         homework_summary: monthlyForm.homework_summary,
         use_style_examples: useStyleExamplesForMonthlyDraft.value,
+        ...selectedGenerationModelPayload(),
       }),
     })
     monthlyForm.ai_draft = data.draft
     monthlyForm.final_feedback = data.draft
     await resizeAllTextareas()
+    await loadAISettings()
     showMessage('AI 初稿已生成')
   } catch (error) {
     showMessage(error.message)
@@ -2177,14 +2526,94 @@ onMounted(async () => {
             <h3>{{ currentClass.name }}</h3><small>{{ eveningStudents.length }} 名学生</small>
             <div class="button-row"><button class="ghost-btn" @click="openClassModal(currentClass)">编辑班级</button><button class="danger-btn" @click="deleteClass">删除班级</button></div>
           </div>
-          <div class="button-row"><button class="primary-btn" @click="openMonthlyModal()">新增晚辅反馈</button><button class="ghost-btn" @click="showBulkModal = true; resizeAllTextareas()">批量录入学生</button></div>
+          <section class="paper-card evening-class-actions">
+            <div>
+              <h3>晚辅反馈填写</h3>
+              <small v-if="eveningStudents.length">先确认学生名单，需要写反馈时再展开批量填写区。</small>
+              <small v-else>这个班级还没有学生，先录入学生后再填写晚辅反馈。</small>
+            </div>
+            <div class="button-row">
+              <button v-if="eveningStudents.length" type="button" class="primary-btn" @click="showEveningBatchWorkbench = true; resizeAllTextareas()">开始填写反馈</button>
+              <button type="button" class="ghost-btn" @click="openMonthlyModal()">单条补录</button>
+              <button type="button" class="ghost-btn" @click="showBulkModal = true; resizeAllTextareas()">{{ eveningStudents.length ? '批量录入学生' : '先录入学生' }}</button>
+            </div>
+          </section>
+          <section v-if="showEveningBatchWorkbench && eveningStudents.length" class="paper-card evening-batch-workbench">
+            <div class="evening-batch-header">
+              <div>
+                <p class="eyebrow">Batch Feedback</p>
+                <h3>批量生成晚辅反馈</h3>
+                <small>当前周期已保存 {{ eveningBatchDoneCount }} / {{ eveningBatchRows.length }} 条</small>
+              </div>
+              <div class="button-row">
+                <button type="button" class="ghost-btn" @click="showEveningBatchWorkbench = false">收起填写区</button>
+              </div>
+            </div>
+            <div class="evening-batch-controls">
+              <label>反馈类型<select v-model="eveningBatchForm.period_type" @change="setEveningBatchPeriodType(eveningBatchForm.period_type)"><option v-for="type in EVENING_PERIOD_TYPES" :key="type.value" :value="type.value">{{ type.label }}</option></select></label>
+              <label>{{ periodFieldLabel(eveningBatchForm.period_type) }}<input v-model="eveningBatchForm.period_value" :type="periodInputType(eveningBatchForm.period_type)" @change="loadEveningBatchFeedbacks" /></label>
+              <label>默认学科<select v-model="eveningBatchForm.default_subject" @change="applyDefaultSubjectToEveningBatch"><option value="">不统一学科</option><option v-for="subject in COMMON_SUBJECTS" :key="subject" :value="subject">{{ subject }}</option></select></label>
+            </div>
+            <div class="evening-batch-generate-options">
+              <label class="generation-model-picker">本次使用模型<select v-model="generationModelKey"><option v-for="model in aiModelOptions" :key="aiModelKey(model)" :value="aiModelKey(model)">{{ model.name }} · {{ model.model }}</option></select><small>{{ generationModelHint() }}</small></label>
+              <section class="feedback-style-entry evening-batch-style-entry">
+                <div>
+                  <strong>晚辅个人风格</strong>
+                  <small>{{ eveningStyleGenerationStatus }}</small>
+                </div>
+                <div class="button-row">
+                  <button v-if="eveningEnabledStyleExampleCount" type="button" class="ghost-btn" :disabled="generatingEveningBatch || savingEveningBatch" @click="useStyleExamplesForMonthlyDraft = !useStyleExamplesForMonthlyDraft">{{ useStyleExamplesForMonthlyDraft ? '本次不用风格' : '使用风格' }}</button>
+                  <button type="button" class="ghost-btn" :disabled="generatingEveningBatch || savingEveningBatch" @click="openFeedbackStyleModal('evening_feedback')">{{ eveningStyleExamples.length ? '管理风格' : '晚辅风格' }}</button>
+                </div>
+              </section>
+            </div>
+            <div class="evening-batch-actions">
+              <span>{{ eveningBatchFilledRows.length }} 行已填写 · {{ eveningBatchGenerateCount }} 行待生成 · {{ eveningBatchSaveCount }} 行待保存</span>
+              <div class="button-row">
+                <button type="button" class="ghost-btn loading-action-btn" :class="{ loading: generatingEveningBatch }" :disabled="generatingEveningBatch || savingEveningBatch || !eveningBatchGenerateCount" @click="generateEveningBatchDrafts()">{{ generatingEveningBatch ? '生成中...' : '批量生成初稿' }}</button>
+                <button type="button" class="primary-btn loading-action-btn" :class="{ loading: savingEveningBatch }" :disabled="generatingEveningBatch || savingEveningBatch || !eveningBatchSaveCount" @click="saveEveningBatchFeedbacks">{{ savingEveningBatch ? '保存中...' : '批量保存反馈' }}</button>
+              </div>
+            </div>
+            <div v-if="eveningBatchRows.length" class="evening-batch-table-wrap">
+              <table class="evening-batch-table">
+                <thead>
+                  <tr>
+                    <th>学生</th>
+                    <th>学科</th>
+                    <th>情况简述</th>
+                    <th>最终反馈</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in eveningBatchRows" :key="row.student_id" :class="{ saved: row.feedback_id, dirty: eveningBatchRowDirty(row), error: row.status === 'error' }">
+                    <td class="student-cell"><strong>{{ row.student_name }}</strong><small>{{ row.grade || '未填年级' }} · {{ row.school || '未填学校' }}</small></td>
+                    <td><select v-model="row.subject" @change="markEveningBatchRowEdited(row)"><option value="">未填</option><option v-for="subject in COMMON_SUBJECTS" :key="subject" :value="subject">{{ subject }}</option></select></td>
+                    <td><textarea v-model="row.homework_summary" class="auto-textarea batch-summary-text" :placeholder="`${subjectWorkLabel(row.subject)}完成情况`" @input="autoResize($event); markEveningBatchRowEdited(row)"></textarea></td>
+                    <td>
+                      <textarea v-model="row.final_feedback" class="auto-textarea batch-final-text" placeholder="生成后可在这里修改最终反馈" @input="autoResize($event); markEveningBatchRowEdited(row)"></textarea>
+                      <details v-if="row.ai_draft" class="batch-draft-details"><summary>查看 AI 初稿</summary><textarea v-model="row.ai_draft" class="auto-textarea batch-draft-text" @input="autoResize($event); markEveningBatchRowEdited(row)"></textarea></details>
+                    </td>
+                    <td><span class="batch-status-pill" :class="row.status">{{ eveningBatchStatusText(row) }}</span></td>
+                    <td class="batch-row-actions">
+                      <label class="check-row"><input v-model="row.selected_for_generate" type="checkbox" />生成</label>
+                      <button type="button" class="ghost-btn" :disabled="generatingEveningBatch || savingEveningBatch" @click="generateEveningBatchRow(row)">生成</button>
+                      <button type="button" class="ghost-btn" @click="go(`#/evening/students/${row.student_id}`)">历史</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <div class="history-header"><h3>学生名单</h3><small>点击学生可查看单人历史反馈。</small></div>
           <div class="student-list">
             <article v-for="student in eveningStudents" :key="student.id" class="student-card" @click="go(`#/evening/students/${student.id}`)">
               <img class="card-sticker" :src="eveningStickerArt" alt="" aria-hidden="true" />
               <span class="avatar">{{ student.name.slice(0, 1) }}</span><h3>{{ student.name }}</h3>
               <p>{{ student.grade || '未填年级' }} · {{ student.school || '未填学校' }}</p><small>{{ student.feedback_count }} 条晚辅反馈</small>
             </article>
-            <div v-if="!eveningStudents.length" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>这个班级还没有学生。</span></div>
+            <div v-if="!eveningStudents.length" class="empty-state"><img :src="emptyStateArt" alt="" aria-hidden="true" /><span>这个班级还没有学生，先点击上方“先录入学生”。</span></div>
           </div>
         </section>
 
@@ -2210,47 +2639,90 @@ onMounted(async () => {
                 <small>用于根据课堂内容、表现、建议和作业生成课后反馈初稿。</small>
               </span>
               <span class="settings-header-side">
-                <span class="settings-pill" :class="{ ok: aiSettings?.has_api_key }">{{ aiSettings?.has_api_key ? `已配置：${aiSettings.model}` : '必配 · 未配置' }}</span>
+                <span class="settings-pill" :class="{ ok: activeAIModel?.has_api_key }">{{ activeAIModel ? `当前：${activeAIModel.name}` : '未选择模型' }}</span>
                 <span class="settings-caret">{{ settingsPanels.feedback_ai ? '收起' : '展开' }}</span>
               </span>
             </button>
 
             <div v-show="settingsPanels.feedback_ai" class="settings-panel-body">
-              <p class="settings-hint">反馈生成模型主要负责把老师填写的课堂事实整理成可以发给家长的课后反馈。API Key 会加密保存在本地数据库里，不会显示明文。</p>
+              <p class="settings-hint">反馈生成模型主要负责把老师填写的课堂事实整理成可以发给家长的课后反馈。可以先使用平台默认模型免费试用，也可以保存多套自己的 API 配置并选择当前使用项。</p>
 
-              <label>推荐模型
-                <select v-model="aiSettingsForm.provider" @change="applyAIPreset">
-                  <option v-for="(preset, key) in AI_PRESETS" :key="key" :value="key">{{ preset.label }}</option>
-                </select>
-                <small>{{ selectedAIPreset.hint }}</small>
-              </label>
-              <div class="preset-link-row">
-                <a v-if="selectedAIPreset.api_key_url" :href="selectedAIPreset.api_key_url" target="_blank" rel="noreferrer">获取 API Key</a>
-                <a v-if="selectedAIPreset.docs_url" :href="selectedAIPreset.docs_url" target="_blank" rel="noreferrer">查看接入文档</a>
-              </div>
-
-              <label>Base URL
-                <input v-model="aiSettingsForm.base_url" placeholder="https://api.deepseek.com" />
-                <small>模型平台的 OpenAI-compatible 接口地址。</small>
-              </label>
-
-              <label>模型名
-                <input v-model="aiSettingsForm.model" placeholder="deepseek-v4-flash" />
-                <small>示例：deepseek-v4-flash、qwen3.6-plus、kimi-k2.6、glm-4-flash-250414。</small>
-              </label>
-
-              <label>API Key
-                <input v-model="aiSettingsForm.api_key" type="password" :placeholder="aiSettings?.has_api_key ? '已配置，留空则保留原 Key' : '粘贴你的 API Key'" autocomplete="off" />
-                <small>{{ aiSettings?.has_api_key ? '当前账号已有 API Key。填写新 Key 会覆盖旧 Key。' : '还没有保存 API Key，生成反馈前需要先配置。' }}</small>
-              </label>
-
-              <div class="button-row danger-row">
-                <div class="button-row">
-                  <button type="button" class="ghost-btn" :disabled="loading" @click="testAISettings">测试连接</button>
-                  <button class="primary-btn" :disabled="loading">保存反馈生成配置</button>
+              <section class="ai-model-list">
+                <div class="style-library-header">
+                  <strong>可用模型</strong>
+                  <small>平台默认剩余 {{ aiTrialRemaining }} / {{ aiTrialTotal }} 次</small>
                 </div>
-                <button type="button" class="danger-btn" :disabled="loading || !aiSettings?.has_api_key" @click="clearAIKey">清除 API Key</button>
-              </div>
+                <label class="settings-model-select">当前使用模型
+                  <select v-model="settingsModelKey" @change="selectSettingsAIModel">
+                    <option v-for="model in aiModelOptions" :key="aiModelKey(model)" :value="aiModelKey(model)" :disabled="!model.has_api_key">{{ model.name }} · {{ model.model }}</option>
+                  </select>
+                  <small>{{ activeAIModel ? `${activeAIModel.provider} · ${activeAIModel.model}` : '请选择可用模型' }}</small>
+                </label>
+                <article v-for="model in aiModelOptions" :key="`${model.type}-${model.id}`" class="ai-model-item" :class="{ active: model.is_active }">
+                  <div>
+                    <strong>{{ model.name }}</strong>
+                    <small>{{ model.provider }} · {{ model.model }} · {{ model.type === 'platform' ? '平台默认模型' : (model.has_api_key ? '已保存 API Key' : '未保存 API Key') }}</small>
+                  </div>
+                  <div class="button-row">
+                    <button type="button" class="ghost-btn" :disabled="loading || model.is_active || !model.has_api_key" @click="selectAIModel(model)">{{ model.is_active ? '使用中' : '使用' }}</button>
+                    <button v-if="model.type === 'personal'" type="button" class="ghost-btn" :disabled="loading" @click="editAIConfig(model)">编辑</button>
+                    <button v-if="model.type === 'personal'" type="button" class="danger-btn" :disabled="loading" @click="deleteAIConfig(model)">删除</button>
+                  </div>
+                </article>
+                <div class="button-row">
+                  <button type="button" class="primary-btn" :disabled="loading" @click="openNewAIConfigForm">新增模型配置</button>
+                </div>
+              </section>
+
+              <section v-if="showAIConfigForm" class="ai-config-editor">
+                <div class="style-library-header">
+                  <strong>{{ aiSettingsForm.id ? '编辑模型配置' : '新增模型配置' }}</strong>
+                  <button type="button" class="ghost-btn" :disabled="loading" @click="closeAIConfigForm">取消</button>
+                </div>
+                <label>配置名称
+                  <input v-model="aiSettingsForm.name" placeholder="例如：我的 DeepSeek / 备用 Qwen" />
+                  <small>只用于你在模型列表里识别这条配置。</small>
+                </label>
+
+                <label>推荐模型
+                  <select v-model="aiSettingsForm.provider" @change="applyAIPreset">
+                    <option v-for="(preset, key) in AI_PRESETS" :key="key" :value="key">{{ preset.label }}</option>
+                  </select>
+                  <small>{{ selectedAIPreset.hint }}</small>
+                </label>
+                <div class="preset-link-row">
+                  <a v-if="selectedAIPreset.api_key_url" :href="selectedAIPreset.api_key_url" target="_blank" rel="noreferrer">获取 API Key</a>
+                  <a v-if="selectedAIPreset.docs_url" :href="selectedAIPreset.docs_url" target="_blank" rel="noreferrer">查看接入文档</a>
+                </div>
+
+                <label>Base URL
+                  <input v-model="aiSettingsForm.base_url" placeholder="https://api.deepseek.com" />
+                  <small>模型平台的 OpenAI-compatible 接口地址。</small>
+                </label>
+
+                <label>模型名
+                  <input v-model="aiSettingsForm.model" placeholder="deepseek-v4-flash" />
+                  <small>示例：deepseek-v4-flash、qwen3.6-plus、kimi-k2.6、glm-4-flash-250414。</small>
+                </label>
+
+                <label>API Key
+                  <input v-model="aiSettingsForm.api_key" type="password" :placeholder="aiSettingsForm.id ? '已配置时留空则保留原 Key' : '粘贴你的 API Key'" autocomplete="off" />
+                  <small>{{ aiSettingsForm.id ? '编辑配置时，填写新 Key 会覆盖旧 Key；留空则保留。' : '新增个人模型配置需要填写 API Key。' }}</small>
+                </label>
+
+                <label class="check-row">
+                  <input v-model="aiSettingsForm.make_active" type="checkbox" />
+                  <span>保存后设为当前使用模型</span>
+                </label>
+
+                <div class="button-row danger-row">
+                  <div class="button-row">
+                    <button type="button" class="ghost-btn" :disabled="loading" @click="testAISettings">测试连接</button>
+                    <button class="primary-btn" :disabled="loading">{{ aiSettingsForm.id ? '更新模型配置' : '保存新的模型配置' }}</button>
+                  </div>
+                  <button type="button" class="danger-btn" :disabled="loading || !aiSettingsForm.id" @click="clearAIKey">清除这条 Key</button>
+                </div>
+              </section>
             </div>
           </form>
 
@@ -2326,23 +2798,23 @@ onMounted(async () => {
         <div class="modal-title">
           <div>
             <p class="eyebrow">开始使用 AI 前</p>
-            <h3>先配置你的模型 API</h3>
+            <h3>选择可用模型</h3>
           </div>
           <button type="button" class="icon-btn" @click="closeApiOnboarding">×</button>
         </div>
-        <p class="settings-hint">老师要使用课堂记录整理和反馈生成，需要先到设置页填写自己的模型 API Key。配置只保存在当前老师账号下，API Key 会加密保存。</p>
+        <p class="settings-hint">可以先使用平台默认模型免费试用，也可以在设置页保存自己的模型 API。个人 API Key 只保存在当前老师账号下，并会加密保存。</p>
         <div class="guide-step-list">
           <article>
-            <strong>1. 反馈生成模型是必配项</strong>
-            <span>它负责把老师的原始课堂记录整理成四大板块，并生成课后反馈正文。</span>
+            <strong>1. 平台默认模型可先试用</strong>
+            <span>课堂记录整理、一对一反馈和晚辅反馈都可以使用；试用次数用完后再配置自己的 API。</span>
           </article>
           <article>
-            <strong>2. 个人风格样例可稍后补充</strong>
-            <span>没有启用样例时按标准四段结构生成；启用样例后，AI 会更贴近你的表达习惯。</span>
+            <strong>2. 个人模型可保存多套</strong>
+            <span>你可以保存多个供应商配置，并选择其中一套作为当前使用模型。</span>
           </article>
         </div>
         <div class="button-row danger-row">
-          <button type="button" class="primary-btn" @click="goToApiSettingsFromOnboarding">去设置 API</button>
+          <button type="button" class="primary-btn" @click="goToApiSettingsFromOnboarding">去选择模型</button>
           <button type="button" class="ghost-btn" @click="closeApiOnboarding">知道了，稍后再说</button>
         </div>
       </article>
@@ -2470,6 +2942,12 @@ onMounted(async () => {
               </div>
               <p v-if="(feedbackEntryMode === 'direct' || hasOrganizedLessonNote) && blockingMissingFields.length" class="settings-warning">还需补充：{{ missingFieldText }}。四大板块齐全后才能生成反馈。</p>
               <p v-if="(feedbackEntryMode === 'direct' || hasOrganizedLessonNote) && canGenerateFeedback" class="settings-hint">四大板块已整理完整，请确认内容无误后生成反馈。</p>
+              <label class="generation-model-picker">本次使用模型
+                <select v-model="generationModelKey">
+                  <option v-for="model in aiModelOptions" :key="aiModelKey(model)" :value="aiModelKey(model)">{{ model.name }} · {{ model.model }}</option>
+                </select>
+                <small>{{ generationModelHint() }}</small>
+              </label>
               <div class="button-row classroom-generate-row danger-row">
                 <button v-if="feedbackEntryMode === 'raw'" type="button" class="ghost-btn" :disabled="loading" @click="organizeLessonNote">{{ hasOrganizedLessonNote ? '重新整理' : '整理课堂记录' }}</button>
                 <button v-if="feedbackEntryMode === 'direct' || hasOrganizedLessonNote" type="button" class="primary-btn" :disabled="loading || !canGenerateFeedback" @click="generateDraft">生成反馈</button>
@@ -2635,7 +3113,8 @@ onMounted(async () => {
         <label>晚辅学生<select v-model="monthlyForm.student_id"><option value="">请选择学生</option><option v-for="student in eveningFeedbackStudentOptions" :key="student.id" :value="student.id">{{ student.name }}</option></select></label>
         <label>反馈类型<select v-model="monthlyForm.period_type" @change="setEveningFeedbackPeriodType(monthlyForm, monthlyForm.period_type)"><option v-for="type in EVENING_PERIOD_TYPES" :key="type.value" :value="type.value">{{ type.label }}</option></select></label>
         <label>{{ periodFieldLabel(monthlyForm.period_type) }}<input v-model="monthlyForm.period_value" :type="periodInputType(monthlyForm.period_type)" /></label>
-        <label>学科<input v-model="monthlyForm.subject" list="subject-options" placeholder="例如 数学，也可以留空" /></label>
+        <label>学科<select v-model="monthlyForm.subject"><option value="">不填写学科</option><option v-for="subject in COMMON_SUBJECTS" :key="subject" :value="subject">{{ subject }}</option></select></label>
+        <label class="generation-model-picker">本次使用模型<select v-model="generationModelKey"><option v-for="model in aiModelOptions" :key="aiModelKey(model)" :value="aiModelKey(model)">{{ model.name }} · {{ model.model }}</option></select><small>{{ generationModelHint() }}</small></label>
         <section class="feedback-style-entry">
           <div>
             <strong>晚辅个人风格</strong>
@@ -2719,7 +3198,7 @@ onMounted(async () => {
           <div class="button-row danger-row"><div class="button-row"><button class="ghost-btn" @click="isEditingEveningDetail = true; assignMonthly(monthlyEditForm, eveningDetail); resizeAllTextareas()">编辑反馈</button><button class="ghost-btn" @click="addCurrentEveningFeedbackAsStyleExample">设为晚辅风格样例</button></div><button class="danger-btn" @click="deleteEveningFeedback">删除反馈</button></div>
         </template>
         <form v-else class="feedback-editor" @submit.prevent="saveEveningDetailEdit">
-          <label>晚辅学生<select v-model="monthlyEditForm.student_id"><option v-for="student in eveningFeedbackStudentOptions" :key="student.id" :value="student.id">{{ student.name }}</option></select></label><label>反馈类型<select v-model="monthlyEditForm.period_type" @change="setEveningFeedbackPeriodType(monthlyEditForm, monthlyEditForm.period_type)"><option v-for="type in EVENING_PERIOD_TYPES" :key="type.value" :value="type.value">{{ type.label }}</option></select></label><label>{{ periodFieldLabel(monthlyEditForm.period_type) }}<input v-model="monthlyEditForm.period_value" :type="periodInputType(monthlyEditForm.period_type)" /></label><label>学科<input v-model="monthlyEditForm.subject" list="subject-options" placeholder="例如 数学，也可以留空" /></label><label>{{ subjectWorkLabel(monthlyEditForm.subject) }}完成情况简述<textarea v-model="monthlyEditForm.homework_summary" class="auto-textarea" @input="autoResize"></textarea></label><label>AI 初稿<textarea v-model="monthlyEditForm.ai_draft" class="auto-textarea large-text" @input="autoResize"></textarea></label><label>最终反馈<textarea v-model="monthlyEditForm.final_feedback" class="auto-textarea final-text" @input="autoResize"></textarea></label>
+          <label>晚辅学生<select v-model="monthlyEditForm.student_id"><option v-for="student in eveningFeedbackStudentOptions" :key="student.id" :value="student.id">{{ student.name }}</option></select></label><label>反馈类型<select v-model="monthlyEditForm.period_type" @change="setEveningFeedbackPeriodType(monthlyEditForm, monthlyEditForm.period_type)"><option v-for="type in EVENING_PERIOD_TYPES" :key="type.value" :value="type.value">{{ type.label }}</option></select></label><label>{{ periodFieldLabel(monthlyEditForm.period_type) }}<input v-model="monthlyEditForm.period_value" :type="periodInputType(monthlyEditForm.period_type)" /></label><label>学科<select v-model="monthlyEditForm.subject"><option value="">不填写学科</option><option v-for="subject in COMMON_SUBJECTS" :key="subject" :value="subject">{{ subject }}</option></select></label><label>{{ subjectWorkLabel(monthlyEditForm.subject) }}完成情况简述<textarea v-model="monthlyEditForm.homework_summary" class="auto-textarea" @input="autoResize"></textarea></label><label>AI 初稿<textarea v-model="monthlyEditForm.ai_draft" class="auto-textarea large-text" @input="autoResize"></textarea></label><label>最终反馈<textarea v-model="monthlyEditForm.final_feedback" class="auto-textarea final-text" @input="autoResize"></textarea></label>
           <div class="button-row"><button class="primary-btn">保存修改</button><button type="button" class="ghost-btn" @click="isEditingEveningDetail = false">取消</button></div>
         </form>
       </article>

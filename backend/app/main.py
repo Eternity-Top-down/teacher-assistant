@@ -9,10 +9,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from .ai_client import generate_evening_feedback, generate_feedback, organize_lesson_note
 from .ai_settings import (
     AIConfig,
-    ai_settings_summary,
-    get_teacher_ai_settings,
+    ai_settings_payload,
+    delete_teacher_ai_config,
+    decrypt_api_key,
+    get_teacher_ai_config_row,
     require_teacher_ai_config,
+    save_teacher_ai_config,
     save_teacher_ai_settings,
+    set_active_ai_model,
     test_ai_connection,
 )
 from .database import get_db, init_db, now_iso
@@ -20,9 +24,14 @@ from .email_service import make_code, send_verification_email
 from .schemas import (
     AISettingsTest,
     AISettingsUpdate,
+    AIConfigCreate,
+    AIConfigUpdate,
+    AIModelSelection,
     EmailCodeRequest,
     EveningClassCreate,
     EveningClassUpdate,
+    EveningFeedbackBatchGenerateRequest,
+    EveningFeedbackBatchSaveRequest,
     EveningFeedbackCreate,
     EveningFeedbackGenerateRequest,
     EveningFeedbackUpdate,
@@ -344,8 +353,7 @@ def me(teacher: dict = CurrentTeacher):
 
 @app.get("/api/settings/ai")
 def get_ai_settings(teacher: dict = CurrentTeacher):
-    row = get_teacher_ai_settings(teacher["id"])
-    return {"settings": ai_settings_summary(row)}
+    return ai_settings_payload(teacher["id"])
 
 
 @app.put("/api/settings/ai")
@@ -359,19 +367,68 @@ def update_ai_settings(payload: AISettingsUpdate, teacher: dict = CurrentTeacher
         clear_api_key=payload.clear_api_key,
         feedback_format_mode=payload.feedback_format_mode,
     )
-    return {"settings": ai_settings_summary(row)}
+    return ai_settings_payload(teacher["id"])
+
+
+@app.post("/api/settings/ai/configs")
+def create_ai_config(payload: AIConfigCreate, teacher: dict = CurrentTeacher):
+    save_teacher_ai_config(
+        teacher_id=teacher["id"],
+        name=payload.name,
+        provider=payload.provider,
+        base_url=payload.base_url,
+        model=payload.model,
+        api_key=payload.api_key,
+        make_active=payload.make_active,
+    )
+    return ai_settings_payload(teacher["id"])
+
+
+@app.put("/api/settings/ai/configs/{config_id}")
+def update_ai_config(config_id: int, payload: AIConfigUpdate, teacher: dict = CurrentTeacher):
+    save_teacher_ai_config(
+        teacher_id=teacher["id"],
+        config_id=config_id,
+        name=payload.name,
+        provider=payload.provider,
+        base_url=payload.base_url,
+        model=payload.model,
+        api_key=payload.api_key,
+        clear_api_key=payload.clear_api_key,
+        make_active=payload.make_active,
+    )
+    return ai_settings_payload(teacher["id"])
+
+
+@app.delete("/api/settings/ai/configs/{config_id}")
+def delete_ai_config(config_id: int, teacher: dict = CurrentTeacher):
+    delete_teacher_ai_config(teacher["id"], config_id)
+    return ai_settings_payload(teacher["id"])
+
+
+@app.post("/api/settings/ai/select")
+def select_ai_model(payload: AIModelSelection, teacher: dict = CurrentTeacher):
+    set_active_ai_model(teacher["id"], payload.model_type, payload.config_id)
+    return ai_settings_payload(teacher["id"])
 
 
 @app.post("/api/settings/ai/test")
 async def test_ai_settings(payload: AISettingsTest, teacher: dict = CurrentTeacher):
     api_key = payload.api_key.strip()
     if not api_key:
-        saved = get_teacher_ai_settings(teacher["id"])
-        if saved and saved["encrypted_api_key"]:
-            config = require_teacher_ai_config(teacher["id"])
-            config.provider = payload.provider
-            config.base_url = payload.base_url.rstrip("/")
-            config.model = payload.model
+        if payload.config_id:
+            saved = get_teacher_ai_config_row(teacher["id"], payload.config_id)
+            saved_key = decrypt_api_key(saved["encrypted_api_key"]) if saved else ""
+            if not saved_key:
+                raise HTTPException(status_code=400, detail="这条模型配置还没有可用的 API Key")
+            config = AIConfig(
+                api_key=saved_key,
+                base_url=payload.base_url.rstrip("/"),
+                model=payload.model,
+                provider=payload.provider,
+                source="personal",
+                config_id=payload.config_id,
+            )
         else:
             raise HTTPException(status_code=400, detail="请先填写 API Key，或先保存一份可用配置")
     else:
@@ -592,7 +649,7 @@ async def organize_feedback_note(student_id: int, payload: FeedbackOrganizeReque
         or payload.homework_plan.strip()
     ):
         raise HTTPException(status_code=400, detail="请先填写本节课原始记录")
-    ai_config = require_teacher_ai_config(teacher["id"])
+    ai_config = require_teacher_ai_config(teacher["id"], model_type=payload.model_type, config_id=payload.config_id)
     try:
         return await organize_lesson_note(
             student_name=student["name"],
@@ -619,7 +676,7 @@ async def create_ai_draft(student_id: int, payload: FeedbackGenerateRequest, tea
             "SELECT COUNT(*) AS count FROM feedbacks WHERE student_id = ? AND teacher_id = ?",
             (student_id, teacher["id"]),
         ).fetchone()["count"]
-    ai_config = require_teacher_ai_config(teacher["id"])
+    ai_config = require_teacher_ai_config(teacher["id"], model_type=payload.model_type, config_id=payload.config_id)
     try:
         draft = await generate_feedback(
             student_name=student["name"],
@@ -1005,6 +1062,253 @@ def search_evening_feedbacks(
     return {"feedbacks": [dict(row) for row in rows]}
 
 
+def evening_batch_feedback_row(db: sqlite3.Connection, feedback_id: int, teacher_id: int) -> dict:
+    row = db.execute(
+        """
+        SELECT f.*, s.name AS student_name, s.grade, s.school, c.name AS class_name
+        FROM evening_feedbacks f
+        JOIN evening_students s ON s.id = f.student_id
+        JOIN evening_classes c ON c.id = s.class_id
+        WHERE f.id = ? AND f.teacher_id = ?
+        """,
+        (feedback_id, teacher_id),
+    ).fetchone()
+    return dict(row) if row else {}
+
+
+@app.get("/api/evening/classes/{class_id}/feedbacks/batch")
+def get_evening_feedback_batch(
+    class_id: int,
+    period_type: str = Query(...),
+    period_value: str = Query(...),
+    teacher: dict = CurrentTeacher,
+):
+    require_evening_class(class_id, teacher["id"])
+    period = evening_period_meta(period_type, period_value)
+    with get_db() as db:
+        rows = db.execute(
+            """
+            SELECT
+                s.id AS student_id,
+                s.name AS student_name,
+                s.grade,
+                s.school,
+                f.id AS feedback_id,
+                f.subject,
+                f.homework_summary,
+                f.ai_draft,
+                f.final_feedback,
+                f.created_at AS feedback_created_at,
+                f.updated_at AS feedback_updated_at
+            FROM evening_students s
+            LEFT JOIN evening_feedbacks f
+                ON f.student_id = s.id
+                AND f.teacher_id = ?
+                AND f.period_type = ?
+                AND f.period_value = ?
+            WHERE s.class_id = ? AND s.teacher_id = ?
+            ORDER BY s.id DESC
+            """,
+            (teacher["id"], period["period_type"], period["period_value"], class_id, teacher["id"]),
+        ).fetchall()
+    items = []
+    for row in rows:
+        record = dict(row)
+        feedback = None
+        if record["feedback_id"]:
+            feedback = {
+                "id": record["feedback_id"],
+                "student_id": record["student_id"],
+                "period_type": period["period_type"],
+                "period_value": period["period_value"],
+                "period_start": period["period_start"],
+                "period_end": period["period_end"],
+                "period_label": period["period_label"],
+                "subject": record["subject"] or "",
+                "homework_summary": record["homework_summary"] or "",
+                "ai_draft": record["ai_draft"] or "",
+                "final_feedback": record["final_feedback"] or "",
+                "created_at": record["feedback_created_at"],
+                "updated_at": record["feedback_updated_at"],
+            }
+        items.append(
+            {
+                "student": {
+                    "id": record["student_id"],
+                    "name": record["student_name"],
+                    "grade": record["grade"],
+                    "school": record["school"],
+                    "class_id": class_id,
+                },
+                "feedback": feedback,
+            }
+        )
+    return {"period": period, "items": items}
+
+
+@app.post("/api/evening/classes/{class_id}/feedbacks/batch/generate")
+async def generate_evening_feedback_batch(
+    class_id: int,
+    payload: EveningFeedbackBatchGenerateRequest,
+    teacher: dict = CurrentTeacher,
+):
+    require_evening_class(class_id, teacher["id"])
+    period = evening_period_meta(payload.period_type, payload.period_value)
+    ai_config = require_teacher_ai_config(teacher["id"], model_type=payload.model_type, config_id=payload.config_id)
+    style_examples = (
+        list_enabled_style_examples(teacher["id"], "evening_feedback")
+        if payload.use_style_examples
+        else []
+    )
+    results = []
+    for item in payload.items:
+        result = {"student_id": item.student_id, "ok": False, "draft": "", "error": ""}
+        try:
+            homework_summary = item.homework_summary.strip()
+            if len(homework_summary) < 5:
+                raise ValueError("请至少填写 5 个字的作业完成情况")
+            student = require_evening_student(item.student_id, teacher["id"])
+            if student["class_id"] != class_id:
+                raise ValueError("该学生不属于当前晚辅班级")
+            draft = await generate_evening_feedback(
+                student_name=student["name"],
+                grade=student["grade"],
+                school=student["school"],
+                period_type=period["period_type"],
+                period_label=period["period_label"],
+                subject=item.subject,
+                homework_summary=homework_summary,
+                style_examples=style_examples,
+                ai_config=ai_config,
+            )
+            result.update({"ok": True, "draft": draft})
+        except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
+            result["error"] = str(exc) or "AI 晚辅反馈生成失败"
+        except Exception as exc:
+            result["error"] = str(exc) or "AI 晚辅反馈生成失败"
+        results.append(result)
+    return {"period": period, "results": results}
+
+
+@app.post("/api/evening/classes/{class_id}/feedbacks/batch")
+def save_evening_feedback_batch(
+    class_id: int,
+    payload: EveningFeedbackBatchSaveRequest,
+    teacher: dict = CurrentTeacher,
+):
+    require_evening_class(class_id, teacher["id"])
+    period = evening_period_meta(payload.period_type, payload.period_value)
+    results = []
+    timestamp = now_iso()
+    with get_db() as db:
+        for item in payload.items:
+            result = {"student_id": item.student_id, "ok": False, "feedback": None, "error": ""}
+            try:
+                homework_summary = item.homework_summary.strip()
+                final_feedback = item.final_feedback.strip()
+                ai_draft = item.ai_draft.strip() or final_feedback
+                if len(homework_summary) < 5:
+                    raise ValueError("请至少填写 5 个字的作业完成情况")
+                if not final_feedback:
+                    raise ValueError("请先生成或填写最终反馈")
+                student = require_evening_student(item.student_id, teacher["id"])
+                if student["class_id"] != class_id:
+                    raise ValueError("该学生不属于当前晚辅班级")
+
+                feedback_id = item.feedback_id
+                if feedback_id:
+                    existing = db.execute(
+                        """
+                        SELECT id, student_id
+                        FROM evening_feedbacks
+                        WHERE id = ? AND teacher_id = ?
+                        """,
+                        (feedback_id, teacher["id"]),
+                    ).fetchone()
+                    if not existing:
+                        raise ValueError("要更新的晚辅反馈不存在")
+                    if existing["student_id"] != item.student_id:
+                        raise ValueError("晚辅反馈和学生不匹配")
+                else:
+                    existing = db.execute(
+                        """
+                        SELECT id
+                        FROM evening_feedbacks
+                        WHERE teacher_id = ? AND student_id = ? AND period_type = ? AND period_value = ?
+                        """,
+                        (teacher["id"], item.student_id, period["period_type"], period["period_value"]),
+                    ).fetchone()
+                    feedback_id = existing["id"] if existing else None
+
+                if feedback_id:
+                    db.execute(
+                        """
+                        UPDATE evening_feedbacks
+                        SET period_type = ?, period_value = ?, period_start = ?, period_end = ?,
+                            period_label = ?, subject = ?, homework_summary = ?, ai_draft = ?,
+                            final_feedback = ?, updated_at = ?
+                        WHERE id = ? AND teacher_id = ?
+                        """,
+                        (
+                            period["period_type"],
+                            period["period_value"],
+                            period["period_start"],
+                            period["period_end"],
+                            period["period_label"],
+                            item.subject,
+                            homework_summary,
+                            ai_draft,
+                            final_feedback,
+                            timestamp,
+                            feedback_id,
+                            teacher["id"],
+                        ),
+                    )
+                    saved_id = feedback_id
+                else:
+                    cursor = db.execute(
+                        """
+                        INSERT INTO evening_feedbacks (
+                            teacher_id, student_id, period_type, period_value,
+                            period_start, period_end, period_label, subject, homework_summary,
+                            ai_draft, final_feedback, created_at, updated_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            teacher["id"],
+                            item.student_id,
+                            period["period_type"],
+                            period["period_value"],
+                            period["period_start"],
+                            period["period_end"],
+                            period["period_label"],
+                            item.subject,
+                            homework_summary,
+                            ai_draft,
+                            final_feedback,
+                            timestamp,
+                            timestamp,
+                        ),
+                    )
+                    saved_id = cursor.lastrowid
+
+                result.update(
+                    {
+                        "ok": True,
+                        "feedback": evening_batch_feedback_row(db, saved_id, teacher["id"]),
+                    }
+                )
+            except sqlite3.IntegrityError as exc:
+                result["error"] = "该学生这个时间段已经有反馈，请刷新后再编辑"
+            except ValueError as exc:
+                result["error"] = str(exc)
+            except Exception as exc:
+                result["error"] = str(exc) or "保存失败"
+            results.append(result)
+    return {"period": period, "results": results}
+
+
 @app.post("/api/evening/classes/{class_id}/feedbacks/generate")
 async def generate_evening_draft(
     class_id: int,
@@ -1016,7 +1320,7 @@ async def generate_evening_draft(
     if student["class_id"] != class_id:
         raise HTTPException(status_code=400, detail="该学生不属于当前晚辅班级")
     period = evening_period_meta(payload.period_type, payload.period_value)
-    ai_config = require_teacher_ai_config(teacher["id"])
+    ai_config = require_teacher_ai_config(teacher["id"], model_type=payload.model_type, config_id=payload.config_id)
     try:
         draft = await generate_evening_feedback(
             student_name=student["name"],

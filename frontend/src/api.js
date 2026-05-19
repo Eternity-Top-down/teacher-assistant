@@ -24,6 +24,8 @@ const FIELD_LABELS = {
   base_url: 'Base URL',
   model: '模型名',
   api_key: 'API Key',
+  model_type: '模型类型',
+  config_id: '模型配置',
   title: '样例标题',
   content: '反馈样例',
   enabled: '启用状态',

@@ -38,6 +38,8 @@ class FeedbackGenerateRequest(BaseModel):
     advice_summary: str = Field(default="", max_length=1000)
     homework_plan: str = Field(default="", max_length=1000)
     use_style_examples: bool = True
+    model_type: str = Field(default="", pattern=r"^(|platform|personal)$")
+    config_id: int | None = None
 
 
 class FeedbackOrganizeRequest(BaseModel):
@@ -48,6 +50,8 @@ class FeedbackOrganizeRequest(BaseModel):
     performance_summary: str = Field(default="", max_length=1000)
     advice_summary: str = Field(default="", max_length=1000)
     homework_plan: str = Field(default="", max_length=1000)
+    model_type: str = Field(default="", pattern=r"^(|platform|personal)$")
+    config_id: int | None = None
 
 
 class FeedbackOrganizeResponse(BaseModel):
@@ -113,6 +117,8 @@ class EveningFeedbackGenerateRequest(BaseModel):
     subject: str = Field(default="", max_length=50)
     homework_summary: str = Field(min_length=5, max_length=2000)
     use_style_examples: bool = True
+    model_type: str = Field(default="", pattern=r"^(|platform|personal)$")
+    config_id: int | None = None
 
 
 class EveningFeedbackCreate(BaseModel):
@@ -135,6 +141,37 @@ class EveningFeedbackUpdate(BaseModel):
     final_feedback: str = Field(min_length=1)
 
 
+class EveningFeedbackBatchPeriod(BaseModel):
+    period_type: str = Field(pattern=r"^(day|week|month)$")
+    period_value: str = Field(min_length=7, max_length=10)
+
+
+class EveningFeedbackBatchGenerateItem(BaseModel):
+    student_id: int
+    subject: str = Field(default="", max_length=50)
+    homework_summary: str = Field(default="", max_length=2000)
+
+
+class EveningFeedbackBatchGenerateRequest(EveningFeedbackBatchPeriod):
+    use_style_examples: bool = True
+    model_type: str = Field(default="", pattern=r"^(|platform|personal)$")
+    config_id: int | None = None
+    items: list[EveningFeedbackBatchGenerateItem] = Field(default_factory=list, max_length=200)
+
+
+class EveningFeedbackBatchSaveItem(BaseModel):
+    student_id: int
+    feedback_id: int | None = None
+    subject: str = Field(default="", max_length=50)
+    homework_summary: str = Field(default="", max_length=2000)
+    ai_draft: str = Field(default="")
+    final_feedback: str = Field(default="")
+
+
+class EveningFeedbackBatchSaveRequest(EveningFeedbackBatchPeriod):
+    items: list[EveningFeedbackBatchSaveItem] = Field(default_factory=list, max_length=200)
+
+
 class AISettingsUpdate(BaseModel):
     provider: str = Field(default="deepseek", max_length=50)
     base_url: str = Field(min_length=1, max_length=300)
@@ -145,10 +182,35 @@ class AISettingsUpdate(BaseModel):
 
 
 class AISettingsTest(BaseModel):
+    config_id: int | None = None
     provider: str = Field(default="deepseek", max_length=50)
     base_url: str = Field(min_length=1, max_length=300)
     model: str = Field(min_length=1, max_length=120)
     api_key: str = Field(default="", max_length=500)
+
+
+class AIConfigCreate(BaseModel):
+    name: str = Field(default="", max_length=80)
+    provider: str = Field(default="deepseek", max_length=50)
+    base_url: str = Field(min_length=1, max_length=300)
+    model: str = Field(min_length=1, max_length=120)
+    api_key: str = Field(min_length=1, max_length=500)
+    make_active: bool = True
+
+
+class AIConfigUpdate(BaseModel):
+    name: str = Field(default="", max_length=80)
+    provider: str = Field(default="deepseek", max_length=50)
+    base_url: str = Field(min_length=1, max_length=300)
+    model: str = Field(min_length=1, max_length=120)
+    api_key: str = Field(default="", max_length=500)
+    clear_api_key: bool = False
+    make_active: bool = True
+
+
+class AIModelSelection(BaseModel):
+    model_type: str = Field(pattern=r"^(platform|personal)$")
+    config_id: int | None = None
 
 
 class StyleExampleCreate(BaseModel):

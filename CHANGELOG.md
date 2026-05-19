@@ -19,6 +19,27 @@
 
 ## 未发布
 
+### 平台默认模型试用和多模型配置
+
+证据：当前工作区 diff，涉及 `backend/app/config.py`、`backend/app/database.py`、`backend/app/ai_settings.py`、`backend/app/main.py`、`backend/app/schemas.py`、`frontend/src/App.vue`、`frontend/src/styles.css`、`backend/.env.example`、`README.md` 和 `CHANGELOG.md`。
+
+- 模型配置从单账号单配置升级为“平台默认模型 + 多套个人模型配置”的统一选择列表。
+- 设置页模型配置改为列表优先，默认只展示可用模型和新增入口；点击新增或编辑个人模型后才展开配置表单。
+- 一对一新增反馈、晚辅单条反馈和晚辅批量表格的生成区域新增“本次使用模型”选择框，老师可以在生成时直接选择平台默认模型或某条个人模型配置。
+- 新增平台默认模型试用额度，新账号默认 30 次；课堂记录整理、一对一生成、单条晚辅生成、晚辅批量生成各按一次点击扣 1 次，批量表格一次生成只扣 1 次。
+- 老师可保存、编辑、删除、测试多套个人 API 配置，并选择其中一套作为当前使用模型；个人模型生成不扣平台试用额度。
+- 旧的单条老师模型配置会迁移为一条个人模型配置；平台默认模型继续由 `.env` 中的 API 配置提供，不向前端暴露 API Key。
+
+### 晚辅反馈批量表格工作台
+
+证据：当前工作区 diff，涉及 `backend/app/main.py`、`backend/app/schemas.py`、`frontend/src/App.vue`、`frontend/src/styles.css`、`README.md` 和 `CHANGELOG.md`。
+
+- 晚辅班级页新增批量反馈表格，老师可先选择反馈类型和日期，再按全班学生逐行填写情况、批量生成 AI 初稿并批量保存。
+- 晚辅班级页默认改为学生名单优先，不再自动展开批量反馈表格；有学生时点击“开始填写反馈”后再展开填写区，无学生时先引导批量录入学生。
+- 批量表格支持默认学科和行内学科覆盖，生成时继续只读取晚辅个人风格样例，不影响一对一反馈。
+- 同一学生同一周期已有反馈会自动带入表格并允许直接更新；新反馈和已有反馈批量保存时按行返回成功或失败状态，单行失败不影响其他学生。
+- 新增晚辅反馈批量读取、批量生成和批量保存接口，继续复用 `student_id + period_type + period_value` 的唯一约束，避免重复记录。
+
 ### 晚辅学科口径、查询筛选和一对一双入口
 
 证据：当前工作区 diff，涉及 `backend/app/database.py`、`backend/app/main.py`、`backend/app/schemas.py`、`backend/app/ai_client.py`、`frontend/src/App.vue`、`frontend/src/styles.css`、`frontend/src/api.js`、`README.md` 和 `CHANGELOG.md`。

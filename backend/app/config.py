@@ -21,7 +21,10 @@ class Settings:
     ai_api_key: str = os.getenv("AI_API_KEY", "")
     ai_base_url: str = os.getenv("AI_BASE_URL", "https://api.deepseek.com").rstrip("/")
     ai_model: str = os.getenv("AI_MODEL", "deepseek-v4-flash")
-    allow_global_ai_fallback: bool = os.getenv("ALLOW_GLOBAL_AI_FALLBACK", "false").lower() == "true"
+    ai_display_name: str = os.getenv("AI_DISPLAY_NAME", "平台默认模型")
+    ai_provider: str = os.getenv("AI_PROVIDER", "platform")
+    ai_trial_quota: int = int(os.getenv("AI_TRIAL_QUOTA", "30"))
+    allow_global_ai_fallback: bool = os.getenv("ALLOW_GLOBAL_AI_FALLBACK", "true").lower() == "true"
 
 
 settings = Settings()

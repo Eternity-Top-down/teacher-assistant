@@ -134,6 +134,32 @@ def init_db() -> None:
                 FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS teacher_ai_configs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                teacher_id INTEGER NOT NULL,
+                name TEXT NOT NULL DEFAULT '',
+                provider TEXT NOT NULL DEFAULT 'deepseek',
+                base_url TEXT NOT NULL,
+                model TEXT NOT NULL,
+                encrypted_api_key TEXT NOT NULL DEFAULT '',
+                is_active INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS teacher_ai_usage (
+                teacher_id INTEGER PRIMARY KEY,
+                selected_model_type TEXT NOT NULL DEFAULT 'platform',
+                selected_config_id INTEGER,
+                trial_quota_total INTEGER NOT NULL DEFAULT 30,
+                trial_quota_used INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE,
+                FOREIGN KEY (selected_config_id) REFERENCES teacher_ai_configs(id) ON DELETE SET NULL
+            );
+
             CREATE TABLE IF NOT EXISTS teacher_style_examples (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 teacher_id INTEGER NOT NULL,
@@ -167,6 +193,68 @@ def init_db() -> None:
             db.execute(
                 "ALTER TABLE teacher_ai_settings ADD COLUMN feedback_format_mode TEXT NOT NULL DEFAULT 'structured'"
             )
+        usage_columns = {
+            row["name"]
+            for row in db.execute("PRAGMA table_info(teacher_ai_usage)").fetchall()
+        }
+        if "selected_model_type" not in usage_columns:
+            db.execute(
+                "ALTER TABLE teacher_ai_usage ADD COLUMN selected_model_type TEXT NOT NULL DEFAULT 'platform'"
+            )
+        if "selected_config_id" not in usage_columns:
+            db.execute("ALTER TABLE teacher_ai_usage ADD COLUMN selected_config_id INTEGER")
+        if "trial_quota_total" not in usage_columns:
+            db.execute(
+                "ALTER TABLE teacher_ai_usage ADD COLUMN trial_quota_total INTEGER NOT NULL DEFAULT 30"
+            )
+        if "trial_quota_used" not in usage_columns:
+            db.execute(
+                "ALTER TABLE teacher_ai_usage ADD COLUMN trial_quota_used INTEGER NOT NULL DEFAULT 0"
+            )
+        timestamp = now_iso()
+        db.execute(
+            """
+            INSERT OR IGNORE INTO teacher_ai_configs (
+                teacher_id, name, provider, base_url, model, encrypted_api_key, is_active, created_at, updated_at
+            )
+            SELECT
+                teacher_id,
+                CASE
+                    WHEN provider = 'custom' THEN '自定义模型'
+                    ELSE provider || ' ' || model
+                END,
+                provider,
+                base_url,
+                model,
+                encrypted_api_key,
+                CASE WHEN encrypted_api_key != '' THEN 1 ELSE 0 END,
+                created_at,
+                updated_at
+            FROM teacher_ai_settings
+            WHERE encrypted_api_key != ''
+              AND NOT EXISTS (
+                SELECT 1 FROM teacher_ai_configs c WHERE c.teacher_id = teacher_ai_settings.teacher_id
+              )
+            """
+        )
+        db.execute(
+            """
+            INSERT OR IGNORE INTO teacher_ai_usage (
+                teacher_id, selected_model_type, selected_config_id, trial_quota_total, trial_quota_used, created_at, updated_at
+            )
+            SELECT
+                t.id,
+                CASE WHEN c.id IS NOT NULL THEN 'personal' ELSE 'platform' END,
+                c.id,
+                ?,
+                0,
+                ?,
+                ?
+            FROM teachers t
+            LEFT JOIN teacher_ai_configs c ON c.teacher_id = t.id AND c.is_active = 1
+            """,
+            (settings.ai_trial_quota, timestamp, timestamp),
+        )
         style_example_columns = {
             row["name"]
             for row in db.execute("PRAGMA table_info(teacher_style_examples)").fetchall()
