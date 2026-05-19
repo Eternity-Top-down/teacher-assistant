@@ -2344,7 +2344,7 @@ body::before {
 
 .evening-batch-table {
   width: 100%;
-  min-width: 1080px;
+  min-width: 1160px;
   border-collapse: separate;
   border-spacing: 0;
 }
@@ -2387,7 +2387,7 @@ body::before {
 }
 
 .evening-batch-table th:nth-child(6) {
-  width: 132px;
+  width: 190px;
 }
 
 .evening-batch-table tr.saved {
@@ -2416,6 +2416,30 @@ body::before {
   font-size: 13px;
   font-weight: 800;
   line-height: 1.35;
+}
+
+.student-model-select {
+  min-height: 36px;
+  margin-top: 12px;
+  padding: 7px 28px 7px 9px;
+  border-width: 2px;
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.evening-history-modal {
+  display: grid;
+  gap: 14px;
+}
+
+.evening-history-list {
+  display: grid;
+  gap: 12px;
+}
+
+.evening-history-item {
+  min-height: 0;
+  padding: 16px 18px;
 }
 
 .batch-summary-text {
@@ -2483,6 +2507,13 @@ body::before {
   gap: 8px;
 }
 
+.batch-row-actions select {
+  width: 100%;
+  min-height: 38px;
+  font-size: 13px;
+}
+
+.batch-row-actions .primary-btn,
 .batch-row-actions .ghost-btn {
   width: 100%;
   min-height: 38px;

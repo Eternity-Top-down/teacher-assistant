@@ -108,8 +108,9 @@
 
 证据：当前工作区 diff，涉及 `frontend/src/App.vue`、`frontend/src/styles.css`、`backend/app/ai_settings.py`、`backend/app/config.py`、`backend/.env.example`、`README.md` 和 `CHANGELOG.md`。
 
-- 新增 `AI_PLATFORM_MODELS` 多平台默认模型配置，支持通过 `.env` 同时配置 DeepSeek、豆包、Kimi 等平台试用模型，并在生成与设置页切换使用。
-- 更新内置模型预设默认值和说明，使 DeepSeek、阿里云百炼、Kimi、智谱、OpenAI、豆包视觉等 OpenAI-compatible 配置更贴近当前官方文档和控制台模型命名。
+- 新增 `AI_PLATFORM_MODELS` 平台默认模型列表配置能力，当前示例覆盖 DeepSeek 和豆包。
+- 新增个人模型配置里的推荐模型入口同步为 DeepSeek、豆包和自定义兼容接口，方便老师跳转获取 API Key 或查看接入文档。
+- 晚辅批量反馈表格支持按学生行单独选择生成模型，默认跟随本次使用模型，便于对比不同模型的生成效果。
 - 将默认全局 AI 兜底配置从 OpenAI 示例调整为 DeepSeek `https://api.deepseek.com` + `deepseek-v4-flash`，降低新用户配置门槛。
 - 优化个人风格样例说明，明确“样例标题”只用于管理，“反馈样例”正文才会参与 AI 风格学习；如需学习标题格式，应把标题行一并粘贴到正文框。
 - 增强个人风格样例库，支持点击样例卡片查看完整内容、编辑标题/正文/启用状态、启用/停用和删除，设置页与新增反馈弹窗中的样例库保持一致。

@@ -40,6 +40,9 @@ const eveningStudents = ref([])
 const currentEveningStudent = ref(null)
 const eveningFeedbacks = ref([])
 const eveningDetail = ref(null)
+const eveningHistoryStudent = ref(null)
+const eveningHistoryFeedbacks = ref([])
+const loadingEveningHistory = ref(false)
 const groupClasses = ref([])
 const currentGroupClass = ref(null)
 const showClassModal = ref(false)
@@ -80,6 +83,7 @@ const feedbackPanels = reactive(defaultFeedbackPanels())
 
 const API_ONBOARDING_SEEN_KEY = 'api_onboarding_seen_v1'
 const SETTINGS_GUIDE_SEEN_KEY = 'settings_guide_seen_v1'
+const EVENING_BATCH_DRAFT_PREFIX = 'evening_batch_draft_v1'
 const WRITING_REFERENCE_VISIBLE_WIDTH = 132
 const WRITING_REFERENCE_VISIBLE_HEIGHT = 76
 const STYLE_EXAMPLE_PAGE_SIZE = 5
@@ -158,7 +162,7 @@ const aiSettingsForm = reactive({
   name: '',
   provider: 'deepseek',
   base_url: 'https://api.deepseek.com',
-  model: 'deepseek-v4-flash',
+  model: 'deepseek-v4-pro',
   api_key: '',
   clear_api_key: false,
   make_active: true,
@@ -178,42 +182,18 @@ const AI_PRESETS = {
   deepseek: {
     label: 'DeepSeek（推荐）',
     base_url: 'https://api.deepseek.com',
-    model: 'deepseek-v4-flash',
-    hint: '适合生成课后反馈初稿，中文表达稳定，性价比较高。deepseek-chat 将退役，新配置建议使用 deepseek-v4-flash。',
+    model: 'deepseek-v4-pro',
+    hint: '使用 DeepSeek 官方 OpenAI-compatible 接入方式：Base URL 为 https://api.deepseek.com，模型名按当前平台默认配置使用 deepseek-v4-pro。',
     api_key_url: 'https://platform.deepseek.com/api_keys',
     docs_url: 'https://api-docs.deepseek.com/',
   },
-  qwen: {
-    label: '阿里云百炼 - 通义千问',
-    base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    model: 'qwen3.6-plus',
-    hint: '适合中国大陆用户，中文反馈、总结和润色场景都比较顺手。若账号暂未开放新模型，可改用 qwen-plus。',
-    api_key_url: 'https://bailian.console.aliyun.com/?tab=model#/api-key',
-    docs_url: 'https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope',
-  },
-  kimi: {
-    label: 'Kimi / Moonshot',
-    base_url: 'https://api.moonshot.ai/v1',
-    model: 'kimi-k2.6',
-    hint: '适合长上下文课堂记录整理，也可用于生成自然、完整的反馈正文。',
-    api_key_url: 'https://platform.moonshot.ai/console/api-keys',
-    docs_url: 'https://platform.moonshot.ai/docs/overview',
-  },
-  zhipu: {
-    label: '智谱 AI',
-    base_url: 'https://open.bigmodel.cn/api/paas/v4',
-    model: 'glm-4-flash-250414',
-    hint: '适合中文反馈生成和日常教育文本润色；如账号支持更新的 GLM 系列，可按控制台模型名替换。',
-    api_key_url: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys',
-    docs_url: 'https://docs.bigmodel.cn/cn/guide/develop/openai/introduction',
-  },
-  openai: {
-    label: 'OpenAI',
-    base_url: 'https://api.openai.com/v1',
-    model: 'gpt-5.4-mini',
-    hint: '适合高质量文本生成；请确认网络、账号和付款方式可用。若账号暂未开放，可改用 gpt-4.1-mini。',
-    api_key_url: 'https://platform.openai.com/api-keys',
-    docs_url: 'https://platform.openai.com/docs/models/gpt-5.4-mini',
+  doubao: {
+    label: '豆包 / 火山方舟',
+    base_url: 'https://ark.cn-beijing.volces.com/api/v3',
+    model: 'doubao-seed-2-0-pro-260215',
+    hint: '使用火山方舟 OpenAI-compatible 接入方式；模型名需与控制台已开通模型或推理接入点保持一致。',
+    api_key_url: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey',
+    docs_url: 'https://www.volcengine.com/docs/82379/1298459',
   },
   custom: { label: '自定义兼容接口', base_url: '', model: '', hint: '用于其他 OpenAI-compatible 文本生成模型。', api_key_url: '', docs_url: '' },
 }
@@ -824,6 +804,117 @@ function eveningBatchRowDirty(row) {
   return eveningBatchFingerprint(row) !== row.original_fingerprint
 }
 
+function eveningBatchDraftKey() {
+  if (!teacher.value?.id || !currentClass.value?.id || !eveningBatchForm.period_type || !eveningBatchForm.period_value) return ''
+  return [
+    EVENING_BATCH_DRAFT_PREFIX,
+    teacher.value.id,
+    currentClass.value.id,
+    eveningBatchForm.period_type,
+    eveningBatchForm.period_value,
+  ].join(':')
+}
+
+function eveningBatchRowHasLocalContent(row) {
+  return Boolean(
+    row.subject?.trim() ||
+      row.homework_summary?.trim() ||
+      row.ai_draft?.trim() ||
+      row.final_feedback?.trim()
+  )
+}
+
+function saveEveningBatchDraft() {
+  const key = eveningBatchDraftKey()
+  if (!key || !eveningBatchRows.value.length) return
+  const rows = eveningBatchRows.value
+    .filter((row) => (!row.feedback_id && eveningBatchRowHasLocalContent(row)) || eveningBatchRowDirty(row))
+    .map((row) => ({
+      student_id: row.student_id,
+      feedback_id: row.feedback_id,
+      subject: row.subject,
+      homework_summary: row.homework_summary,
+      ai_draft: row.ai_draft,
+      final_feedback: row.final_feedback,
+      selected_for_generate: row.selected_for_generate,
+      generation_model_key: row.generation_model_key,
+      last_default_subject: row.last_default_subject,
+      status: row.status,
+      original_fingerprint: row.original_fingerprint,
+    }))
+  try {
+    if (rows.length) {
+      localStorage.setItem(
+        key,
+        JSON.stringify({
+          default_subject: eveningBatchForm.default_subject,
+          rows,
+          updated_at: new Date().toISOString(),
+        })
+      )
+    } else {
+      localStorage.removeItem(key)
+    }
+  } catch {
+    showMessage('晚辅草稿保存失败，请先保存或复制重要内容')
+  }
+}
+
+function restoreEveningBatchDraft() {
+  const key = eveningBatchDraftKey()
+  if (!key) return false
+  let draft = null
+  try {
+    draft = JSON.parse(localStorage.getItem(key) || 'null')
+  } catch {
+    return false
+  }
+  const draftRows = Array.isArray(draft?.rows) ? draft.rows : []
+  if (!draftRows.length) return false
+  if (draft?.default_subject !== undefined) eveningBatchForm.default_subject = draft.default_subject || ''
+  const draftMap = new Map(draftRows.map((row) => [row.student_id, row]))
+  eveningBatchRows.value.forEach((row) => {
+    const draftRow = draftMap.get(row.student_id)
+    if (!draftRow) return
+    if (row.feedback_id && draftRow.feedback_id && row.feedback_id !== draftRow.feedback_id) return
+    row.subject = draftRow.subject || ''
+    row.homework_summary = draftRow.homework_summary || ''
+    row.ai_draft = draftRow.ai_draft || ''
+    row.final_feedback = draftRow.final_feedback || ''
+    row.selected_for_generate = draftRow.selected_for_generate !== false
+    row.generation_model_key = draftRow.generation_model_key || ''
+    row.last_default_subject = draftRow.last_default_subject || eveningBatchForm.default_subject
+    row.error = ''
+    row.original_fingerprint = draftRow.original_fingerprint || eveningBatchFingerprint({
+      ...row,
+      subject: '',
+      homework_summary: '',
+      ai_draft: '',
+      final_feedback: '',
+    })
+    row.status = eveningBatchRowDirty(row) ? 'dirty' : (row.feedback_id ? 'saved' : 'idle')
+  })
+  return true
+}
+
+function clearEveningBatchDraftIfClean() {
+  const key = eveningBatchDraftKey()
+  if (!key) return
+  const hasUnsaved = eveningBatchRows.value.some((row) =>
+    (!row.feedback_id && eveningBatchRowHasLocalContent(row)) || eveningBatchRowDirty(row)
+  )
+  if (!hasUnsaved) localStorage.removeItem(key)
+}
+
+async function deleteEveningBatchDraft() {
+  const key = eveningBatchDraftKey()
+  if (!key) return showMessage('请先选择有效的反馈周期')
+  if (!window.confirm('确定删除当前周期的未保存草稿吗？表格会重新载入已保存的晚辅反馈，未保存内容将无法恢复。')) return
+  localStorage.removeItem(key)
+  await loadEveningBatchFeedbacks()
+  showMessage('当前周期草稿已删除')
+}
+
 function eveningBatchStatusText(row) {
   if (row.status === 'generating') return '生成中'
   if (row.status === 'saving') return '保存中'
@@ -847,6 +938,7 @@ function makeEveningBatchRow(item) {
     ai_draft: feedback.ai_draft || '',
     final_feedback: feedback.final_feedback || '',
     selected_for_generate: !feedback.final_feedback,
+    generation_model_key: '',
     status: feedback.id ? 'saved' : 'idle',
     error: '',
     last_default_subject: feedback.subject ? '' : eveningBatchForm.default_subject,
@@ -860,6 +952,12 @@ function markEveningBatchRowEdited(row) {
   row.error = ''
   row.status = eveningBatchRowDirty(row) ? 'dirty' : (row.feedback_id ? 'saved' : 'idle')
   if (row.homework_summary.trim() && !row.final_feedback.trim()) row.selected_for_generate = true
+  saveEveningBatchDraft()
+}
+
+function updateEveningBatchRowModel(row) {
+  row.error = ''
+  saveEveningBatchDraft()
 }
 
 function applyDefaultSubjectToEveningBatch() {
@@ -870,6 +968,7 @@ function applyDefaultSubjectToEveningBatch() {
       markEveningBatchRowEdited(row)
     }
   })
+  saveEveningBatchDraft()
 }
 
 async function setEveningBatchPeriodType(type) {
@@ -998,6 +1097,20 @@ function selectedGenerationModelPayload() {
     platform_model_id: model.type === 'platform' ? model.id : '',
     config_id: model.type === 'personal' ? model.id : null,
   }
+}
+
+function modelPayloadFromKey(modelKey = '') {
+  const model = aiModelOptions.value.find((item) => aiModelKey(item) === modelKey) || selectedGenerationModel.value
+  if (!model) return {}
+  return {
+    model_type: model.type,
+    platform_model_id: model.type === 'platform' ? model.id : '',
+    config_id: model.type === 'personal' ? model.id : null,
+  }
+}
+
+function eveningBatchRowModelKey(row) {
+  return row.generation_model_key || generationModelKey.value
 }
 
 function generationModelHint() {
@@ -1918,6 +2031,10 @@ async function loadEveningBatchFeedbacks() {
   })
   const data = await request(`/evening/classes/${currentClass.value.id}/feedbacks/batch?${params}`)
   eveningBatchRows.value = data.items.map(makeEveningBatchRow)
+  if (restoreEveningBatchDraft()) {
+    showEveningBatchWorkbench.value = true
+    showMessage('已恢复未保存的晚辅填写草稿')
+  }
   await resizeAllTextareas()
 }
 
@@ -1932,37 +2049,56 @@ async function generateEveningBatchDrafts(rows = null) {
     row.error = ''
   })
   try {
-    const data = await request(`/evening/classes/${currentClass.value.id}/feedbacks/batch/generate`, {
-      method: 'POST',
-      body: JSON.stringify({
-        period_type: eveningBatchForm.period_type,
-        period_value: eveningBatchForm.period_value,
-        use_style_examples: useStyleExamplesForMonthlyDraft.value,
-        ...selectedGenerationModelPayload(),
-        items: targetRows.map((row) => ({
-          student_id: row.student_id,
-          subject: row.subject,
-          homework_summary: row.homework_summary,
-        })),
-      }),
-    })
-    const resultMap = new Map(data.results.map((result) => [result.student_id, result]))
+    const rowGroups = new Map()
     targetRows.forEach((row) => {
-      const result = resultMap.get(row.student_id)
-      if (result?.ok) {
-        row.ai_draft = result.draft
-        row.final_feedback = result.draft
-        row.selected_for_generate = false
-        row.status = 'dirty'
-        row.error = ''
-      } else {
-        row.status = 'error'
-        row.error = result?.error || '生成失败'
-      }
+      const key = eveningBatchRowModelKey(row)
+      rowGroups.set(key, [...(rowGroups.get(key) || []), row])
     })
-    const successCount = data.results.filter((result) => result.ok).length
+    let successCount = 0
+    let failedCount = 0
+    for (const [modelKey, groupedRows] of rowGroups.entries()) {
+      try {
+        const data = await request(`/evening/classes/${currentClass.value.id}/feedbacks/batch/generate`, {
+          method: 'POST',
+          body: JSON.stringify({
+            period_type: eveningBatchForm.period_type,
+            period_value: eveningBatchForm.period_value,
+            use_style_examples: useStyleExamplesForMonthlyDraft.value,
+            ...modelPayloadFromKey(modelKey),
+            items: groupedRows.map((row) => ({
+              student_id: row.student_id,
+              subject: row.subject,
+              homework_summary: row.homework_summary,
+            })),
+          }),
+        })
+        const resultMap = new Map(data.results.map((result) => [result.student_id, result]))
+        groupedRows.forEach((row) => {
+          const result = resultMap.get(row.student_id)
+          if (result?.ok) {
+            row.ai_draft = result.draft
+            row.final_feedback = result.draft
+            row.selected_for_generate = false
+            row.status = 'dirty'
+            row.error = ''
+            successCount += 1
+          } else {
+            row.status = 'error'
+            row.error = result?.error || '生成失败'
+            failedCount += 1
+          }
+        })
+      } catch (error) {
+        groupedRows.forEach((row) => {
+          row.status = 'error'
+          row.error = error.message
+          failedCount += 1
+        })
+      }
+    }
     await loadAISettings()
-    showMessage(`已生成 ${successCount} 条晚辅初稿`)
+    saveEveningBatchDraft()
+    showMessage(failedCount ? `已生成 ${successCount} 条，${failedCount} 条失败` : `已生成 ${successCount} 条晚辅初稿`)
   } catch (error) {
     targetRows.forEach((row) => {
       row.status = 'error'
@@ -1981,8 +2117,8 @@ async function generateEveningBatchRow(row) {
   await generateEveningBatchDrafts([row])
 }
 
-async function saveEveningBatchFeedbacks() {
-  const targetRows = eveningBatchRows.value.filter((row) => row.final_feedback.trim() && eveningBatchRowDirty(row))
+async function saveEveningBatchRows(rows, successMessage = '') {
+  const targetRows = rows.filter((row) => row.final_feedback.trim() && eveningBatchRowDirty(row))
   if (!targetRows.length) return showMessage('没有需要保存的晚辅反馈')
   savingEveningBatch.value = true
   targetRows.forEach((row) => {
@@ -2024,8 +2160,10 @@ async function saveEveningBatchFeedbacks() {
         row.error = result?.error || '保存失败'
       }
     })
-    await loadEveningClassContext()
-    showMessage(`已保存 ${data.results.filter((result) => result.ok).length} 条晚辅反馈`)
+    const successCount = data.results.filter((result) => result.ok).length
+    saveEveningBatchDraft()
+    clearEveningBatchDraftIfClean()
+    showMessage(successMessage || `已保存 ${successCount} 条晚辅反馈`)
   } catch (error) {
     targetRows.forEach((row) => {
       row.status = 'error'
@@ -2035,6 +2173,18 @@ async function saveEveningBatchFeedbacks() {
   } finally {
     savingEveningBatch.value = false
   }
+}
+
+async function saveEveningBatchFeedbacks() {
+  await saveEveningBatchRows(
+    eveningBatchRows.value.filter((row) => row.final_feedback.trim() && eveningBatchRowDirty(row))
+  )
+}
+
+async function saveEveningBatchRow(row) {
+  if (!row.final_feedback.trim()) return showMessage('请先生成或填写这名学生的最终反馈')
+  if (!eveningBatchRowDirty(row)) return showMessage('这条反馈已经保存')
+  await saveEveningBatchRows([row], `${row.student_name}的晚辅反馈已保存`)
 }
 
 async function bulkCreateEveningStudents() {
@@ -2184,6 +2334,38 @@ function openEveningDetail(feedback) {
   assignMonthly(monthlyEditForm, feedback)
   isEditingEveningDetail.value = false
   resizeAllTextareas()
+}
+
+async function openEveningStudentHistory(row) {
+  eveningHistoryStudent.value = {
+    id: row.student_id,
+    name: row.student_name,
+  }
+  eveningHistoryFeedbacks.value = []
+  loadingEveningHistory.value = true
+  try {
+    const data = await request(`/evening/students/${row.student_id}/feedbacks`)
+    eveningHistoryFeedbacks.value = data.feedbacks.map((feedback) => ({
+      ...feedback,
+      student_name: row.student_name,
+    }))
+  } catch (error) {
+    showMessage(error.message)
+    eveningHistoryStudent.value = null
+  } finally {
+    loadingEveningHistory.value = false
+  }
+}
+
+function closeEveningStudentHistory() {
+  eveningHistoryStudent.value = null
+  eveningHistoryFeedbacks.value = []
+  loadingEveningHistory.value = false
+}
+
+function openEveningHistoryDetail(feedback) {
+  closeEveningStudentHistory()
+  openEveningDetail(feedback)
 }
 
 async function saveEveningDetailEdit() {
@@ -2548,6 +2730,7 @@ onMounted(async () => {
                 <small>当前周期已保存 {{ eveningBatchDoneCount }} / {{ eveningBatchRows.length }} 条</small>
               </div>
               <div class="button-row">
+                <button type="button" class="ghost-btn" @click="deleteEveningBatchDraft">删除草稿</button>
                 <button type="button" class="ghost-btn" @click="showEveningBatchWorkbench = false">收起填写区</button>
               </div>
             </div>
@@ -2590,7 +2773,13 @@ onMounted(async () => {
                 </thead>
                 <tbody>
                   <tr v-for="row in eveningBatchRows" :key="row.student_id" :class="{ saved: row.feedback_id, dirty: eveningBatchRowDirty(row), error: row.status === 'error' }">
-                    <td class="student-cell"><strong>{{ row.student_name }}</strong><small>{{ row.grade || '未填年级' }} · {{ row.school || '未填学校' }}</small></td>
+                    <td class="student-cell">
+                      <strong>{{ row.student_name }}</strong>
+                      <select class="student-model-select" v-model="row.generation_model_key" :disabled="generatingEveningBatch || savingEveningBatch" @change="updateEveningBatchRowModel(row)">
+                        <option value="">跟随本次模型</option>
+                        <option v-for="model in aiModelOptions" :key="aiModelKey(model)" :value="aiModelKey(model)">{{ model.name }}</option>
+                      </select>
+                    </td>
                     <td><select v-model="row.subject" @change="markEveningBatchRowEdited(row)"><option value="">未填</option><option v-for="subject in COMMON_SUBJECTS" :key="subject" :value="subject">{{ subject }}</option></select></td>
                     <td><textarea v-model="row.homework_summary" class="auto-textarea batch-summary-text" :placeholder="`${subjectWorkLabel(row.subject)}完成情况`" @input="autoResize($event); markEveningBatchRowEdited(row)"></textarea></td>
                     <td>
@@ -2599,9 +2788,10 @@ onMounted(async () => {
                     </td>
                     <td><span class="batch-status-pill" :class="row.status">{{ eveningBatchStatusText(row) }}</span></td>
                     <td class="batch-row-actions">
-                      <label class="check-row"><input v-model="row.selected_for_generate" type="checkbox" />生成</label>
+                      <label class="check-row"><input v-model="row.selected_for_generate" type="checkbox" @change="saveEveningBatchDraft" />生成</label>
                       <button type="button" class="ghost-btn" :disabled="generatingEveningBatch || savingEveningBatch" @click="generateEveningBatchRow(row)">生成</button>
-                      <button type="button" class="ghost-btn" @click="go(`#/evening/students/${row.student_id}`)">历史</button>
+                      <button type="button" class="primary-btn" :disabled="generatingEveningBatch || savingEveningBatch || !row.final_feedback.trim() || !eveningBatchRowDirty(row)" @click="saveEveningBatchRow(row)">保存</button>
+                      <button type="button" class="ghost-btn" @click="openEveningStudentHistory(row)">历史</button>
                     </td>
                   </tr>
                 </tbody>
@@ -2682,7 +2872,7 @@ onMounted(async () => {
                   <button type="button" class="ghost-btn" :disabled="loading" @click="closeAIConfigForm">取消</button>
                 </div>
                 <label>配置名称
-                  <input v-model="aiSettingsForm.name" placeholder="例如：我的 DeepSeek / 备用 Qwen" />
+                  <input v-model="aiSettingsForm.name" placeholder="例如：我的 DeepSeek / 备用豆包" />
                   <small>只用于你在模型列表里识别这条配置。</small>
                 </label>
 
@@ -2703,8 +2893,8 @@ onMounted(async () => {
                 </label>
 
                 <label>模型名
-                  <input v-model="aiSettingsForm.model" placeholder="deepseek-v4-flash" />
-                  <small>示例：deepseek-v4-flash、qwen3.6-plus、kimi-k2.6、glm-4-flash-250414。</small>
+                  <input v-model="aiSettingsForm.model" placeholder="deepseek-v4-pro" />
+                  <small>示例：deepseek-v4-pro、doubao-seed-2-0-pro-260215。自定义接口请填写对应平台控制台显示的模型名。</small>
                 </label>
 
                 <label>API Key
@@ -3189,6 +3379,21 @@ onMounted(async () => {
             </div>
           </div>
         </section>
+      </article>
+    </div>
+
+    <div v-if="eveningHistoryStudent" class="modal-mask">
+      <article class="paper-card modal-panel feedback-detail-modal evening-history-modal">
+        <div class="modal-title"><h3>{{ eveningHistoryStudent.name }} 的历史反馈</h3><button type="button" class="icon-btn" @click="closeEveningStudentHistory">×</button></div>
+        <div v-if="loadingEveningHistory" class="empty-state small"><span>正在加载历史反馈...</span></div>
+        <div v-else class="evening-history-list">
+          <button v-for="feedback in eveningHistoryFeedbacks" :key="feedback.id" class="history-card evening-history-item" type="button" @click="openEveningHistoryDetail(feedback)">
+            <strong>{{ feedback.period_label || '未填写时间' }}</strong>
+            <span>{{ periodTypeLabel(feedback.period_type) }} · {{ subjectWorkLabel(feedback.subject) }} · {{ shortText(feedback.homework_summary, 64) }}</span>
+            <small>{{ shortText(feedback.final_feedback, 110) }}</small>
+          </button>
+          <div v-if="!eveningHistoryFeedbacks.length" class="empty-state small"><span>暂无晚辅反馈。</span></div>
+        </div>
       </article>
     </div>
 

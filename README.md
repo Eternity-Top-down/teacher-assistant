@@ -116,7 +116,7 @@ SMTP_FROM=
 
 AI_API_KEY=
 AI_BASE_URL=https://api.deepseek.com
-AI_MODEL=deepseek-v4-flash
+AI_MODEL=deepseek-v4-pro
 AI_DISPLAY_NAME=平台默认模型
 AI_PROVIDER=deepseek
 AI_TRIAL_QUOTA=30
@@ -125,9 +125,8 @@ ALLOW_GLOBAL_AI_FALLBACK=true
 # 可选：配置多个平台默认模型，供新用户在试用额度内切换体验
 DEEPSEEK_API_KEY=
 DOUBAO_API_KEY=
-DOUBAO_MODEL=请替换为火山方舟控制台的 Endpoint ID 或模型名
-KIMI_API_KEY=
-AI_PLATFORM_MODELS=[{"id":"deepseek","name":"DeepSeek 平台默认","provider":"deepseek","base_url":"https://api.deepseek.com","model":"deepseek-v4-flash","api_key_env":"DEEPSEEK_API_KEY"},{"id":"doubao","name":"豆包平台默认","provider":"doubao","base_url":"https://ark.cn-beijing.volces.com/api/v3","model_env":"DOUBAO_MODEL","api_key_env":"DOUBAO_API_KEY"},{"id":"kimi","name":"Kimi 平台默认","provider":"kimi","base_url":"https://api.moonshot.ai/v1","model":"kimi-k2.6","api_key_env":"KIMI_API_KEY"}]
+DOUBAO_MODEL=doubao-seed-2-0-pro-260215
+AI_PLATFORM_MODELS=[{"id":"deepseek","name":"DeepSeek 平台默认","provider":"deepseek","base_url":"https://api.deepseek.com","model":"deepseek-v4-pro","api_key_env":"DEEPSEEK_API_KEY"},{"id":"doubao","name":"豆包平台默认","provider":"doubao","base_url":"https://ark.cn-beijing.volces.com/api/v3","model_env":"DOUBAO_MODEL","api_key_env":"DOUBAO_API_KEY"}]
 ```
 
 ### 必改项
@@ -162,17 +161,15 @@ SMTP_FROM=你的QQ邮箱
 
 平台默认模型试用额度用完后，系统会提示老师配置自己的 API。第一版不做管理员页面，单个用户加额度可直接维护数据库中的 `teacher_ai_usage.trial_quota_total`。
 
-`AI_PLATFORM_MODELS` 必须是 JSON 数组。每个模型至少需要 `id`、`name`、`provider`、`base_url`、`model` 和 `api_key` 或 `api_key_env`。为了避免把 Key 写进 JSON，推荐使用 `api_key_env`、`model_env` 这类 `*_env` 字段，让系统从同一个 `.env` 文件读取真实值。豆包走火山方舟 OpenAI-compatible 接口时，`model` 通常需要填控制台里的推理接入点 ID 或已开通模型名。
+`AI_PLATFORM_MODELS` 必须是单行 JSON 数组。每个模型至少需要 `id`、`name`、`provider`、`base_url`、`model` 和 `api_key` 或 `api_key_env`。为了避免把 Key 写进 JSON，推荐使用 `api_key_env`、`model_env` 这类 `*_env` 字段，让系统从同一个 `.env` 文件读取真实值。
 
-内置模型预设会尽量跟随各厂商 OpenAI-compatible 官方文档更新。若控制台提示模型无权限或未开通，可优先保留 Base URL，只把模型名改成账号控制台显示的可用模型或推理接入点 ID。
+新增个人模型配置里的推荐模型会与平台默认模型保持一致，方便老师跳转到对应平台获取 API Key 或查看接入文档。若使用自定义接口，请按对应平台控制台和官方文档填写 Base URL 与模型名。
 
 当前内置预设重点覆盖：
 
-- DeepSeek：`https://api.deepseek.com`，默认 `deepseek-v4-flash`。
-- 阿里云百炼：`https://dashscope.aliyuncs.com/compatible-mode/v1`，默认 `qwen3.6-plus`；若账号未开放可改用控制台可见的 Qwen 模型。
-- Kimi / Moonshot：`https://api.moonshot.ai/v1`，文本默认 `kimi-k2.6`。
-- 智谱 AI：`https://open.bigmodel.cn/api/paas/v4`，默认 `glm-4-flash-250414`。
-- OpenAI：`https://api.openai.com/v1`，默认 `gpt-5.4-mini`；若账号未开放可改用 `gpt-4.1-mini` 等可用模型。
+- DeepSeek：`https://api.deepseek.com`，默认 `deepseek-v4-pro`。
+- 豆包 / 火山方舟：`https://ark.cn-beijing.volces.com/api/v3`，默认使用 `DOUBAO_MODEL` 配置。
+- 自定义兼容接口：用于其他 OpenAI-compatible 文本生成模型，需手动填写 Base URL、模型名和 API Key。
 
 ### 个人风格样例
 
