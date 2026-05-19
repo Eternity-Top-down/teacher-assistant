@@ -151,6 +151,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS teacher_ai_usage (
                 teacher_id INTEGER PRIMARY KEY,
                 selected_model_type TEXT NOT NULL DEFAULT 'platform',
+                selected_platform_model_id TEXT NOT NULL DEFAULT '',
                 selected_config_id INTEGER,
                 trial_quota_total INTEGER NOT NULL DEFAULT 30,
                 trial_quota_used INTEGER NOT NULL DEFAULT 0,
@@ -201,6 +202,8 @@ def init_db() -> None:
             db.execute(
                 "ALTER TABLE teacher_ai_usage ADD COLUMN selected_model_type TEXT NOT NULL DEFAULT 'platform'"
             )
+        if "selected_platform_model_id" not in usage_columns:
+            db.execute("ALTER TABLE teacher_ai_usage ADD COLUMN selected_platform_model_id TEXT NOT NULL DEFAULT ''")
         if "selected_config_id" not in usage_columns:
             db.execute("ALTER TABLE teacher_ai_usage ADD COLUMN selected_config_id INTEGER")
         if "trial_quota_total" not in usage_columns:

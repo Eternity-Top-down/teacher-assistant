@@ -408,7 +408,12 @@ def delete_ai_config(config_id: int, teacher: dict = CurrentTeacher):
 
 @app.post("/api/settings/ai/select")
 def select_ai_model(payload: AIModelSelection, teacher: dict = CurrentTeacher):
-    set_active_ai_model(teacher["id"], payload.model_type, payload.config_id)
+    set_active_ai_model(
+        teacher["id"],
+        payload.model_type,
+        config_id=payload.config_id,
+        platform_model_id=payload.platform_model_id,
+    )
     return ai_settings_payload(teacher["id"])
 
 
@@ -649,7 +654,12 @@ async def organize_feedback_note(student_id: int, payload: FeedbackOrganizeReque
         or payload.homework_plan.strip()
     ):
         raise HTTPException(status_code=400, detail="请先填写本节课原始记录")
-    ai_config = require_teacher_ai_config(teacher["id"], model_type=payload.model_type, config_id=payload.config_id)
+    ai_config = require_teacher_ai_config(
+        teacher["id"],
+        model_type=payload.model_type,
+        config_id=payload.config_id,
+        platform_model_id=payload.platform_model_id,
+    )
     try:
         return await organize_lesson_note(
             student_name=student["name"],
@@ -676,7 +686,12 @@ async def create_ai_draft(student_id: int, payload: FeedbackGenerateRequest, tea
             "SELECT COUNT(*) AS count FROM feedbacks WHERE student_id = ? AND teacher_id = ?",
             (student_id, teacher["id"]),
         ).fetchone()["count"]
-    ai_config = require_teacher_ai_config(teacher["id"], model_type=payload.model_type, config_id=payload.config_id)
+    ai_config = require_teacher_ai_config(
+        teacher["id"],
+        model_type=payload.model_type,
+        config_id=payload.config_id,
+        platform_model_id=payload.platform_model_id,
+    )
     try:
         draft = await generate_feedback(
             student_name=student["name"],
@@ -1154,7 +1169,12 @@ async def generate_evening_feedback_batch(
 ):
     require_evening_class(class_id, teacher["id"])
     period = evening_period_meta(payload.period_type, payload.period_value)
-    ai_config = require_teacher_ai_config(teacher["id"], model_type=payload.model_type, config_id=payload.config_id)
+    ai_config = require_teacher_ai_config(
+        teacher["id"],
+        model_type=payload.model_type,
+        config_id=payload.config_id,
+        platform_model_id=payload.platform_model_id,
+    )
     style_examples = (
         list_enabled_style_examples(teacher["id"], "evening_feedback")
         if payload.use_style_examples
@@ -1320,7 +1340,12 @@ async def generate_evening_draft(
     if student["class_id"] != class_id:
         raise HTTPException(status_code=400, detail="该学生不属于当前晚辅班级")
     period = evening_period_meta(payload.period_type, payload.period_value)
-    ai_config = require_teacher_ai_config(teacher["id"], model_type=payload.model_type, config_id=payload.config_id)
+    ai_config = require_teacher_ai_config(
+        teacher["id"],
+        model_type=payload.model_type,
+        config_id=payload.config_id,
+        platform_model_id=payload.platform_model_id,
+    )
     try:
         draft = await generate_evening_feedback(
             student_name=student["name"],

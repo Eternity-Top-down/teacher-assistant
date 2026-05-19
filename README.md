@@ -121,6 +121,13 @@ AI_DISPLAY_NAME=平台默认模型
 AI_PROVIDER=deepseek
 AI_TRIAL_QUOTA=30
 ALLOW_GLOBAL_AI_FALLBACK=true
+
+# 可选：配置多个平台默认模型，供新用户在试用额度内切换体验
+DEEPSEEK_API_KEY=
+DOUBAO_API_KEY=
+DOUBAO_MODEL=请替换为火山方舟控制台的 Endpoint ID 或模型名
+KIMI_API_KEY=
+AI_PLATFORM_MODELS=[{"id":"deepseek","name":"DeepSeek 平台默认","provider":"deepseek","base_url":"https://api.deepseek.com","model":"deepseek-v4-flash","api_key_env":"DEEPSEEK_API_KEY"},{"id":"doubao","name":"豆包平台默认","provider":"doubao","base_url":"https://ark.cn-beijing.volces.com/api/v3","model_env":"DOUBAO_MODEL","api_key_env":"DOUBAO_API_KEY"},{"id":"kimi","name":"Kimi 平台默认","provider":"kimi","base_url":"https://api.moonshot.ai/v1","model":"kimi-k2.6","api_key_env":"KIMI_API_KEY"}]
 ```
 
 ### 必改项
@@ -147,13 +154,15 @@ SMTP_FROM=你的QQ邮箱
 
 登录网页后进入「设置」页面选择可用模型：
 
-- 平台默认模型：由 `backend/.env` 中的 `AI_API_KEY`、`AI_BASE_URL`、`AI_MODEL` 配置，前端会显示供应商和模型名，但不会显示 API Key。新账号默认可免费试用 `AI_TRIAL_QUOTA` 次。
+- 平台默认模型：默认兼容 `AI_API_KEY`、`AI_BASE_URL`、`AI_MODEL` 这一组旧配置；如果配置了 `AI_PLATFORM_MODELS`，系统会显示多套平台默认模型供老师在试用额度内切换体验。前端会显示供应商和模型名，但不会显示 API Key。新账号默认可免费试用 `AI_TRIAL_QUOTA` 次。
 - 我的模型配置：老师可以保存多套自己的 OpenAI-compatible API 配置，并选择其中一套作为当前使用模型；设置页默认先展示可用模型列表，点击新增或编辑后才展开配置表单。个人 API Key 会加密保存在 SQLite 数据库中，前端只显示是否已配置，不回显明文。
 - 生成界面也可直接选择“本次使用模型”，不需要先回到设置页切换全局当前模型。
 - 反馈生成模型用于整理一对一课堂记录、生成一对一课后反馈和晚辅反馈；课堂记录整理、一对一生成、单条晚辅生成、晚辅批量生成各扣 1 次平台试用额度，晚辅批量表格一次点击只扣 1 次。
 - 个人反馈风格样例：用于让生成结果更贴近老师自己的表达习惯；设置页可通过“反馈样例类型”选择框切换管理一对一反馈样例和晚辅反馈样例，两类样例库互不影响。没有启用一对一样例时，一对一反馈默认按课堂学习内容、课堂表现与知识掌握情况、课后建议、作业安排四段结构输出；启用样例后会优先学习样例里的标题格式、段落结构、语气和详略，但仍必须覆盖四类课堂信息。晚辅样例只影响晚辅反馈，主要学习家长沟通语气、段落详略和晚辅写法。
 
 平台默认模型试用额度用完后，系统会提示老师配置自己的 API。第一版不做管理员页面，单个用户加额度可直接维护数据库中的 `teacher_ai_usage.trial_quota_total`。
+
+`AI_PLATFORM_MODELS` 必须是 JSON 数组。每个模型至少需要 `id`、`name`、`provider`、`base_url`、`model` 和 `api_key` 或 `api_key_env`。为了避免把 Key 写进 JSON，推荐使用 `api_key_env`、`model_env` 这类 `*_env` 字段，让系统从同一个 `.env` 文件读取真实值。豆包走火山方舟 OpenAI-compatible 接口时，`model` 通常需要填控制台里的推理接入点 ID 或已开通模型名。
 
 内置模型预设会尽量跟随各厂商 OpenAI-compatible 官方文档更新。若控制台提示模型无权限或未开通，可优先保留 Base URL，只把模型名改成账号控制台显示的可用模型或推理接入点 ID。
 

@@ -23,6 +23,19 @@ class AIConfig:
     display_name: str = ""
 
 
+def platform_models() -> list[dict]:
+    return settings.ai_platform_models
+
+
+def get_platform_model(model_id: str = "") -> dict | None:
+    models = platform_models()
+    if model_id:
+        matched = next((model for model in models if model["id"] == model_id), None)
+        if matched:
+            return matched
+    return models[0] if models else None
+
+
 def _secret_key() -> bytes:
     return hashlib.sha256(settings.app_secret.encode("utf-8")).digest()
 
@@ -63,16 +76,16 @@ def decrypt_api_key(encrypted: str) -> str:
         return ""
 
 
-def platform_model_summary() -> dict:
+def platform_model_summary(model: dict, is_active: bool = False) -> dict:
     return {
-        "id": "platform",
+        "id": model["id"],
         "type": "platform",
-        "name": settings.ai_display_name,
-        "provider": settings.ai_provider,
-        "base_url": settings.ai_base_url,
-        "model": settings.ai_model,
-        "has_api_key": bool(settings.ai_api_key),
-        "is_active": False,
+        "name": model["name"],
+        "provider": model["provider"],
+        "base_url": model["base_url"],
+        "model": model["model"],
+        "has_api_key": bool(model["api_key"]),
+        "is_active": is_active,
     }
 
 
@@ -105,12 +118,18 @@ def ensure_teacher_ai_usage(teacher_id: int, db=None) -> dict:
             db.execute(
                 """
                 INSERT INTO teacher_ai_usage (
-                    teacher_id, selected_model_type, selected_config_id,
+                    teacher_id, selected_model_type, selected_platform_model_id, selected_config_id,
                     trial_quota_total, trial_quota_used, created_at, updated_at
                 )
-                VALUES (?, 'platform', NULL, ?, 0, ?, ?)
+                VALUES (?, 'platform', ?, NULL, ?, 0, ?, ?)
                 """,
-                (teacher_id, settings.ai_trial_quota, timestamp, timestamp),
+                (
+                    teacher_id,
+                    get_platform_model()["id"] if get_platform_model() else "",
+                    settings.ai_trial_quota,
+                    timestamp,
+                    timestamp,
+                ),
             )
             row = db.execute(
                 "SELECT * FROM teacher_ai_usage WHERE teacher_id = ?",
@@ -160,20 +179,34 @@ def ai_settings_payload(teacher_id: int) -> dict:
         ).fetchall()
     configs = [ai_config_summary(dict(row)) for row in rows]
     selected_model_type = usage["selected_model_type"]
+    selected_platform_model_id = usage.get("selected_platform_model_id") or ""
     selected_config_id = usage["selected_config_id"]
     if selected_model_type == "personal" and not any(config["id"] == selected_config_id for config in configs):
         selected_model_type = "platform"
         selected_config_id = None
-    platform = platform_model_summary()
-    platform["is_active"] = selected_model_type == "platform"
+    active_platform_model = get_platform_model(selected_platform_model_id)
+    if not active_platform_model:
+        active_platform_model = get_platform_model()
+    platform_summaries = [
+        platform_model_summary(
+            model,
+            bool(selected_model_type == "platform" and active_platform_model and model["id"] == active_platform_model["id"]),
+        )
+        for model in platform_models()
+    ]
+    platform = next((model for model in platform_summaries if model["is_active"]), None) or (
+        platform_summaries[0] if platform_summaries else None
+    )
     quota_remaining = max(0, usage["trial_quota_total"] - usage["trial_quota_used"])
     active_personal = next((config for config in configs if config["id"] == selected_config_id), None)
     active = active_personal if selected_model_type == "personal" else platform
     return {
         "platform": platform,
+        "platforms": platform_summaries,
         "configs": configs,
-        "models": [platform, *configs],
+        "models": [*platform_summaries, *configs],
         "selected_model_type": selected_model_type,
+        "selected_platform_model_id": active["id"] if active and selected_model_type == "platform" else "",
         "selected_config_id": selected_config_id,
         "active_model": active,
         "trial_quota_total": usage["trial_quota_total"],
@@ -258,7 +291,7 @@ def save_teacher_ai_config(
             )
             saved_id = cursor.lastrowid
         if make_active:
-            set_active_ai_model(teacher_id, "personal", saved_id, db)
+            set_active_ai_model(teacher_id, "personal", config_id=saved_id, db=db)
         row = db.execute(
             "SELECT * FROM teacher_ai_configs WHERE id = ? AND teacher_id = ?",
             (saved_id, teacher_id),
@@ -266,7 +299,13 @@ def save_teacher_ai_config(
     return dict(row)
 
 
-def set_active_ai_model(teacher_id: int, model_type: str, config_id: int | None = None, db=None) -> None:
+def set_active_ai_model(
+    teacher_id: int,
+    model_type: str,
+    config_id: int | None = None,
+    platform_model_id: str = "",
+    db=None,
+) -> None:
     close_db = db is None
     if close_db:
         context = get_db()
@@ -275,6 +314,9 @@ def set_active_ai_model(teacher_id: int, model_type: str, config_id: int | None 
         ensure_teacher_ai_usage(teacher_id, db)
         timestamp = now_iso()
         if model_type == "platform":
+            platform_model = get_platform_model(platform_model_id)
+            if not platform_model or not platform_model["api_key"]:
+                raise HTTPException(status_code=400, detail="这个平台默认模型还没有配置可用的 API Key")
             db.execute(
                 "UPDATE teacher_ai_configs SET is_active = 0 WHERE teacher_id = ?",
                 (teacher_id,),
@@ -282,10 +324,10 @@ def set_active_ai_model(teacher_id: int, model_type: str, config_id: int | None 
             db.execute(
                 """
                 UPDATE teacher_ai_usage
-                SET selected_model_type = 'platform', selected_config_id = NULL, updated_at = ?
+                SET selected_model_type = 'platform', selected_platform_model_id = ?, selected_config_id = NULL, updated_at = ?
                 WHERE teacher_id = ?
                 """,
-                (timestamp, teacher_id),
+                (platform_model["id"], timestamp, teacher_id),
             )
         elif model_type == "personal" and config_id:
             row = db.execute(
@@ -346,10 +388,12 @@ def get_teacher_ai_config(
     consume_trial: bool = False,
     model_type: str = "",
     config_id: int | None = None,
+    platform_model_id: str = "",
 ) -> AIConfig | None:
     with get_db() as db:
         usage = ensure_teacher_ai_usage(teacher_id, db)
         selected_model_type = model_type or usage["selected_model_type"]
+        selected_platform_model_id = platform_model_id if model_type == "platform" else (usage.get("selected_platform_model_id") or "")
         selected_config_id = config_id if model_type == "personal" else usage["selected_config_id"]
         if selected_model_type == "personal" and selected_config_id:
             row = db.execute(
@@ -371,7 +415,8 @@ def get_teacher_ai_config(
             if model_type == "personal":
                 raise HTTPException(status_code=400, detail="本次选择的个人模型不可用，请检查 API Key 或重新选择模型。")
 
-        if selected_model_type == "platform" and settings.ai_api_key:
+        platform_model = get_platform_model(selected_platform_model_id)
+        if selected_model_type == "platform" and platform_model and platform_model["api_key"]:
             if consume_trial:
                 remaining = usage["trial_quota_total"] - usage["trial_quota_used"]
                 if remaining <= 0:
@@ -385,12 +430,12 @@ def get_teacher_ai_config(
                     (now_iso(), teacher_id),
                 )
             return AIConfig(
-                api_key=settings.ai_api_key,
-                base_url=settings.ai_base_url,
-                model=settings.ai_model,
-                provider=settings.ai_provider,
+                api_key=platform_model["api_key"],
+                base_url=platform_model["base_url"],
+                model=platform_model["model"],
+                provider=platform_model["provider"],
                 source="platform",
-                display_name=settings.ai_display_name,
+                display_name=platform_model["name"],
             )
 
     return None
@@ -401,12 +446,14 @@ def require_teacher_ai_config(
     consume_trial: bool = True,
     model_type: str = "",
     config_id: int | None = None,
+    platform_model_id: str = "",
 ) -> AIConfig:
     config = get_teacher_ai_config(
         teacher_id,
         consume_trial=consume_trial,
         model_type=model_type,
         config_id=config_id,
+        platform_model_id=platform_model_id,
     )
     if not config:
         raise HTTPException(status_code=400, detail="请先到设置页选择平台默认模型，或配置自己的 AI 模型和 API Key")

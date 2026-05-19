@@ -969,7 +969,7 @@ function assignAISettings(settings) {
 
 function aiModelKey(model) {
   if (!model) return ''
-  return model.type === 'personal' ? `personal-${model.id}` : 'platform'
+  return model.type === 'personal' ? `personal-${model.id}` : `platform-${model.id || 'default'}`
 }
 
 function syncGenerationModelSelection() {
@@ -995,6 +995,7 @@ function selectedGenerationModelPayload() {
   if (!model) return {}
   return {
     model_type: model.type,
+    platform_model_id: model.type === 'platform' ? model.id : '',
     config_id: model.type === 'personal' ? model.id : null,
   }
 }
@@ -1002,7 +1003,7 @@ function selectedGenerationModelPayload() {
 function generationModelHint() {
   const model = selectedGenerationModel.value
   if (!model) return '请先到设置页选择或添加可用模型'
-  if (model.type === 'platform') return `平台默认模型 · 剩余 ${aiTrialRemaining.value} / ${aiTrialTotal.value} 次`
+  if (model.type === 'platform') return `${model.provider} · 平台试用 · 剩余 ${aiTrialRemaining.value} / ${aiTrialTotal.value} 次`
   return `${model.provider} · ${model.model}`
 }
 
@@ -1117,6 +1118,7 @@ async function selectAIModel(model) {
       method: 'POST',
       body: JSON.stringify({
         model_type: model.type,
+        platform_model_id: model.type === 'platform' ? model.id : '',
         config_id: model.type === 'personal' ? model.id : null,
       }),
     })
