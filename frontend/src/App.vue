@@ -300,10 +300,10 @@ const eveningFeedbackStudentOptions = computed(() => {
 })
 const eveningBatchFilledRows = computed(() => eveningBatchRows.value.filter((row) => row.homework_summary.trim()))
 const eveningBatchGenerateCount = computed(() =>
-  eveningBatchFilledRows.value.filter((row) => !row.final_feedback.trim() || row.selected_for_generate).length
+  eveningBatchFilledRows.value.length
 )
 const eveningBatchSaveCount = computed(() =>
-  eveningBatchRows.value.filter((row) => row.final_feedback.trim() && eveningBatchRowDirty(row)).length
+  eveningBatchRows.value.filter((row) => row.final_feedback.trim()).length
 )
 const eveningBatchDoneCount = computed(() => eveningBatchRows.value.filter((row) => row.feedback_id).length)
 const writingReferenceStyle = computed(() => ({
@@ -2039,9 +2039,7 @@ async function loadEveningBatchFeedbacks() {
 }
 
 async function generateEveningBatchDrafts(rows = null) {
-  const targetRows = rows || eveningBatchRows.value.filter((row) =>
-    row.homework_summary.trim() && (!row.final_feedback.trim() || row.selected_for_generate)
-  )
+  const targetRows = rows || eveningBatchRows.value.filter((row) => row.homework_summary.trim())
   if (!targetRows.length) return showMessage('请先填写需要生成的学生情况')
   generatingEveningBatch.value = true
   targetRows.forEach((row) => {
@@ -2078,7 +2076,6 @@ async function generateEveningBatchDrafts(rows = null) {
           if (result?.ok) {
             row.ai_draft = result.draft
             row.final_feedback = result.draft
-            row.selected_for_generate = false
             row.status = 'dirty'
             row.error = ''
             successCount += 1
@@ -2118,7 +2115,7 @@ async function generateEveningBatchRow(row) {
 }
 
 async function saveEveningBatchRows(rows, successMessage = '') {
-  const targetRows = rows.filter((row) => row.final_feedback.trim() && eveningBatchRowDirty(row))
+  const targetRows = rows.filter((row) => row.final_feedback.trim())
   if (!targetRows.length) return showMessage('没有需要保存的晚辅反馈')
   savingEveningBatch.value = true
   targetRows.forEach((row) => {
@@ -2177,13 +2174,12 @@ async function saveEveningBatchRows(rows, successMessage = '') {
 
 async function saveEveningBatchFeedbacks() {
   await saveEveningBatchRows(
-    eveningBatchRows.value.filter((row) => row.final_feedback.trim() && eveningBatchRowDirty(row))
+    eveningBatchRows.value.filter((row) => row.final_feedback.trim())
   )
 }
 
 async function saveEveningBatchRow(row) {
   if (!row.final_feedback.trim()) return showMessage('请先生成或填写这名学生的最终反馈')
-  if (!eveningBatchRowDirty(row)) return showMessage('这条反馈已经保存')
   await saveEveningBatchRows([row], `${row.student_name}的晚辅反馈已保存`)
 }
 
@@ -2753,7 +2749,7 @@ onMounted(async () => {
               </section>
             </div>
             <div class="evening-batch-actions">
-              <span>{{ eveningBatchFilledRows.length }} 行已填写 · {{ eveningBatchGenerateCount }} 行待生成 · {{ eveningBatchSaveCount }} 行待保存</span>
+              <span>{{ eveningBatchFilledRows.length }} 行已填写 · {{ eveningBatchGenerateCount }} 行可生成 · {{ eveningBatchSaveCount }} 行可保存</span>
               <div class="button-row">
                 <button type="button" class="ghost-btn loading-action-btn" :class="{ loading: generatingEveningBatch }" :disabled="generatingEveningBatch || savingEveningBatch || !eveningBatchGenerateCount" @click="generateEveningBatchDrafts()">{{ generatingEveningBatch ? '生成中...' : '批量生成初稿' }}</button>
                 <button type="button" class="primary-btn loading-action-btn" :class="{ loading: savingEveningBatch }" :disabled="generatingEveningBatch || savingEveningBatch || !eveningBatchSaveCount" @click="saveEveningBatchFeedbacks">{{ savingEveningBatch ? '保存中...' : '批量保存反馈' }}</button>
@@ -2788,9 +2784,8 @@ onMounted(async () => {
                     </td>
                     <td><span class="batch-status-pill" :class="row.status">{{ eveningBatchStatusText(row) }}</span></td>
                     <td class="batch-row-actions">
-                      <label class="check-row"><input v-model="row.selected_for_generate" type="checkbox" @change="saveEveningBatchDraft" />生成</label>
                       <button type="button" class="ghost-btn" :disabled="generatingEveningBatch || savingEveningBatch" @click="generateEveningBatchRow(row)">生成</button>
-                      <button type="button" class="primary-btn" :disabled="generatingEveningBatch || savingEveningBatch || !row.final_feedback.trim() || !eveningBatchRowDirty(row)" @click="saveEveningBatchRow(row)">保存</button>
+                      <button type="button" class="primary-btn" :disabled="generatingEveningBatch || savingEveningBatch || !row.final_feedback.trim()" @click="saveEveningBatchRow(row)">保存</button>
                       <button type="button" class="ghost-btn" @click="openEveningStudentHistory(row)">历史</button>
                     </td>
                   </tr>

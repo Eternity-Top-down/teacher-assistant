@@ -16,6 +16,16 @@ def _normalize_platform_model_id(value: str, fallback: str) -> str:
 
 
 def _load_platform_ai_models() -> list[dict]:
+    def legacy_deepseek_model() -> dict:
+        return {
+            "id": "deepseek",
+            "name": os.getenv("AI_DISPLAY_NAME", "DeepSeek 平台默认"),
+            "provider": "deepseek",
+            "base_url": os.getenv("AI_BASE_URL", "https://api.deepseek.com").rstrip("/"),
+            "model": os.getenv("AI_MODEL", "deepseek-v4-pro"),
+            "api_key": os.getenv("AI_API_KEY", ""),
+        }
+
     def item_value(item: dict, key: str, default: str = "") -> str:
         env_name = str(item.get(f"{key}_env") or "").strip()
         if env_name:
@@ -45,6 +55,8 @@ def _load_platform_ai_models() -> list[dict]:
                 str(item.get("id") or provider or model),
                 f"platform-{index}",
             )
+            if provider.lower() != "deepseek" and "deepseek" not in model_id:
+                continue
             if model_id in seen_ids:
                 raise RuntimeError(f"AI_PLATFORM_MODELS 中存在重复 id：{model_id}")
             seen_ids.add(model_id)
@@ -59,18 +71,9 @@ def _load_platform_ai_models() -> list[dict]:
                     "api_key": api_key,
                 }
             )
-        return models
+        return models or [legacy_deepseek_model()]
 
-    return [
-        {
-            "id": _normalize_platform_model_id(os.getenv("AI_PROVIDER", "deepseek"), "platform"),
-            "name": os.getenv("AI_DISPLAY_NAME", "平台默认模型"),
-            "provider": os.getenv("AI_PROVIDER", "platform"),
-            "base_url": os.getenv("AI_BASE_URL", "https://api.deepseek.com").rstrip("/"),
-            "model": os.getenv("AI_MODEL", "deepseek-v4-flash"),
-            "api_key": os.getenv("AI_API_KEY", ""),
-        }
-    ]
+    return [legacy_deepseek_model()]
 
 
 class Settings:
@@ -85,9 +88,9 @@ class Settings:
 
     ai_api_key: str = os.getenv("AI_API_KEY", "")
     ai_base_url: str = os.getenv("AI_BASE_URL", "https://api.deepseek.com").rstrip("/")
-    ai_model: str = os.getenv("AI_MODEL", "deepseek-v4-flash")
-    ai_display_name: str = os.getenv("AI_DISPLAY_NAME", "平台默认模型")
-    ai_provider: str = os.getenv("AI_PROVIDER", "platform")
+    ai_model: str = os.getenv("AI_MODEL", "deepseek-v4-pro")
+    ai_display_name: str = os.getenv("AI_DISPLAY_NAME", "DeepSeek 平台默认")
+    ai_provider: str = "deepseek"
     ai_trial_quota: int = int(os.getenv("AI_TRIAL_QUOTA", "30"))
     allow_global_ai_fallback: bool = os.getenv("ALLOW_GLOBAL_AI_FALLBACK", "true").lower() == "true"
     ai_platform_models: list[dict] = _load_platform_ai_models()

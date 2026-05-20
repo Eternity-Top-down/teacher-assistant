@@ -122,11 +122,9 @@ AI_PROVIDER=deepseek
 AI_TRIAL_QUOTA=30
 ALLOW_GLOBAL_AI_FALLBACK=true
 
-# 可选：配置多个平台默认模型，供新用户在试用额度内切换体验
+# 可选：显式配置 DeepSeek 平台默认模型，供新用户在试用额度内体验
 DEEPSEEK_API_KEY=
-DOUBAO_API_KEY=
-DOUBAO_MODEL=doubao-seed-2-0-pro-260215
-AI_PLATFORM_MODELS=[{"id":"deepseek","name":"DeepSeek 平台默认","provider":"deepseek","base_url":"https://api.deepseek.com","model":"deepseek-v4-pro","api_key_env":"DEEPSEEK_API_KEY"},{"id":"doubao","name":"豆包平台默认","provider":"doubao","base_url":"https://ark.cn-beijing.volces.com/api/v3","model_env":"DOUBAO_MODEL","api_key_env":"DOUBAO_API_KEY"}]
+AI_PLATFORM_MODELS=[{"id":"deepseek","name":"DeepSeek 平台默认","provider":"deepseek","base_url":"https://api.deepseek.com","model":"deepseek-v4-pro","api_key_env":"DEEPSEEK_API_KEY"}]
 ```
 
 ### 必改项
@@ -153,22 +151,22 @@ SMTP_FROM=你的QQ邮箱
 
 登录网页后进入「设置」页面选择可用模型：
 
-- 平台默认模型：默认兼容 `AI_API_KEY`、`AI_BASE_URL`、`AI_MODEL` 这一组旧配置；如果配置了 `AI_PLATFORM_MODELS`，系统会显示多套平台默认模型供老师在试用额度内切换体验。前端会显示供应商和模型名，但不会显示 API Key。新账号默认可免费试用 `AI_TRIAL_QUOTA` 次。
+- 平台默认模型：只提供 DeepSeek 平台默认模型，默认兼容 `AI_API_KEY`、`AI_BASE_URL`、`AI_MODEL` 这一组旧配置；如果配置了 `AI_PLATFORM_MODELS`，系统也只会把 DeepSeek 作为平台默认模型展示给老师试用。前端会显示供应商和模型名，但不会显示 API Key。新账号默认可免费试用 `AI_TRIAL_QUOTA` 次。
 - 我的模型配置：老师可以保存多套自己的 OpenAI-compatible API 配置，并选择其中一套作为当前使用模型；设置页默认先展示可用模型列表，点击新增或编辑后才展开配置表单。个人 API Key 会加密保存在 SQLite 数据库中，前端只显示是否已配置，不回显明文。
 - 生成界面也可直接选择“本次使用模型”，不需要先回到设置页切换全局当前模型。
 - 反馈生成模型用于整理一对一课堂记录、生成一对一课后反馈和晚辅反馈；课堂记录整理、一对一生成、单条晚辅生成、晚辅批量生成各扣 1 次平台试用额度，晚辅批量表格一次点击只扣 1 次。
-- 个人反馈风格样例：用于让生成结果更贴近老师自己的表达习惯；设置页可通过“反馈样例类型”选择框切换管理一对一反馈样例和晚辅反馈样例，两类样例库互不影响。没有启用一对一样例时，一对一反馈默认按课堂学习内容、课堂表现与知识掌握情况、课后建议、作业安排四段结构输出；启用样例后会优先学习样例里的标题格式、段落结构、语气和详略，但仍必须覆盖四类课堂信息。晚辅样例只影响晚辅反馈，主要学习家长沟通语气、段落详略和晚辅写法。
+- 个人反馈风格样例：用于让生成结果更贴近老师自己的表达习惯；设置页可通过“反馈样例类型”选择框切换管理一对一反馈样例和晚辅反馈样例，两类样例库互不影响。没有启用一对一样例时，一对一反馈默认按课堂学习内容、课堂表现与知识掌握情况、课后建议、作业安排四段结构输出；启用样例后会优先学习样例里的标题格式、段落结构、语气和详略，但仍必须覆盖四类课堂信息。晚辅样例只影响晚辅反馈，生成时优先学习样例中稳定、可迁移的开场、表达结构和语气，再以学生表现、作业完成情况、知识点掌握情况和学习建议作为质量底座；样例中稳定出现的聊天式称呼和开场可作为老师沟通风格保留，但不会复用样例中的学生事实。晚辅反馈仍只需要老师输入情况简述，会根据简述中的可用事实密度自动调整生成策略，并按日/周/月反馈口径使用“今天 / 本周 / 本月”这类正文时间说法。
 
 平台默认模型试用额度用完后，系统会提示老师配置自己的 API。第一版不做管理员页面，单个用户加额度可直接维护数据库中的 `teacher_ai_usage.trial_quota_total`。
 
-`AI_PLATFORM_MODELS` 必须是单行 JSON 数组。每个模型至少需要 `id`、`name`、`provider`、`base_url`、`model` 和 `api_key` 或 `api_key_env`。为了避免把 Key 写进 JSON，推荐使用 `api_key_env`、`model_env` 这类 `*_env` 字段，让系统从同一个 `.env` 文件读取真实值。
+`AI_PLATFORM_MODELS` 必须是单行 JSON 数组。平台默认模型当前只保留 DeepSeek；如配置了其他 provider 的平台默认项，后端不会展示给老师试用。为了避免把 Key 写进 JSON，推荐使用 `api_key_env`、`model_env` 这类 `*_env` 字段，让系统从同一个 `.env` 文件读取真实值。
 
-新增个人模型配置里的推荐模型会与平台默认模型保持一致，方便老师跳转到对应平台获取 API Key 或查看接入文档。若使用自定义接口，请按对应平台控制台和官方文档填写 Base URL 与模型名。
+新增个人模型配置可保存老师自己的 API；DeepSeek 以外的模型请老师在“我的模型配置”里自行填写 API Key、Base URL 和模型名。
 
 当前内置预设重点覆盖：
 
 - DeepSeek：`https://api.deepseek.com`，默认 `deepseek-v4-pro`。
-- 豆包 / 火山方舟：`https://ark.cn-beijing.volces.com/api/v3`，默认使用 `DOUBAO_MODEL` 配置。
+- 豆包 / 火山方舟：不作为平台默认模型；如需使用，请在“我的模型配置”中自行填写 API Key、Base URL 和模型名。
 - 自定义兼容接口：用于其他 OpenAI-compatible 文本生成模型，需手动填写 Base URL、模型名和 API Key。
 
 ### 个人风格样例
