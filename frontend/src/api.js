@@ -79,7 +79,7 @@ export async function request(path, options = {}) {
       headers,
     })
   } catch (error) {
-    throw new Error('无法连接后端服务，请确认后端正在运行')
+    throw new Error('无法连接后端服务，或本次请求已超时/被中断，请确认后端正在运行后重试')
   }
 
   const data = await response.json().catch(() => ({}))

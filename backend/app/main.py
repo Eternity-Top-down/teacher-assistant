@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta
 
 import sqlite3
@@ -58,6 +59,7 @@ from .security import CurrentTeacher, create_token, hash_password, verify_passwo
 app = FastAPI(title="教师一对一反馈助手 API")
 
 MAX_ENABLED_STYLE_EXAMPLES = 5
+EVENING_BATCH_GENERATE_CONCURRENCY = 50
 
 app.add_middleware(
     CORSMiddleware,
@@ -1180,8 +1182,8 @@ async def generate_evening_feedback_batch(
         if payload.use_style_examples
         else []
     )
-    results = []
-    for item in payload.items:
+
+    async def generate_item(item) -> dict:
         result = {"student_id": item.student_id, "ok": False, "draft": "", "error": ""}
         try:
             homework_summary = item.homework_summary.strip()
@@ -1206,7 +1208,15 @@ async def generate_evening_feedback_batch(
             result["error"] = str(exc) or "AI 晚辅反馈生成失败"
         except Exception as exc:
             result["error"] = str(exc) or "AI 晚辅反馈生成失败"
-        results.append(result)
+        return result
+
+    semaphore = asyncio.Semaphore(EVENING_BATCH_GENERATE_CONCURRENCY)
+
+    async def limited_generate_item(item) -> dict:
+        async with semaphore:
+            return await generate_item(item)
+
+    results = await asyncio.gather(*(limited_generate_item(item) for item in payload.items))
     return {"period": period, "results": results}
 
 
