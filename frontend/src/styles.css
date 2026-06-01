@@ -868,6 +868,31 @@ select:focus {
   margin-top: -2px;
 }
 
+.filename-preview-box {
+  display: grid;
+  gap: 7px;
+  padding: 12px 14px;
+  border: 2px solid rgba(245, 189, 69, 0.78);
+  border-left: 6px solid var(--yellow);
+  border-radius: 8px;
+  background: #fff9e8;
+  box-shadow: 0 8px 18px rgba(44, 60, 78, 0.08);
+}
+
+.filename-preview-box span {
+  color: #8a5a12;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.filename-preview-box strong {
+  color: var(--ink);
+  font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
 .settings-status {
   padding: 13px 15px;
   border: 3px dashed #d9a9b8;
@@ -2293,6 +2318,48 @@ body::before {
   line-height: 1.5;
 }
 
+.evening-archive-panel {
+  display: grid;
+  gap: 16px;
+  padding: 22px;
+  border-color: var(--green);
+}
+
+.evening-archive-list {
+  gap: 12px;
+}
+
+.evening-archive-card {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 0;
+}
+
+.evening-archive-card.selected {
+  background: #f2fff0;
+}
+
+.archive-select-check {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  padding: 0 0 0 18px;
+}
+
+.archive-select-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--green);
+}
+
+.evening-archive-card .feedback-card-main {
+  padding: 18px 20px;
+}
+
+.evening-archive-card > .ghost-btn {
+  margin-right: 18px;
+}
+
 .evening-batch-header,
 .evening-batch-actions {
   display: flex;
@@ -2855,6 +2922,20 @@ body::before {
     align-items: stretch;
     flex-direction: column;
     grid-template-columns: 1fr;
+  }
+
+  .evening-archive-card {
+    grid-template-columns: 1fr;
+  }
+
+  .archive-select-check {
+    justify-content: flex-start;
+    min-height: auto;
+    padding: 14px 18px 0;
+  }
+
+  .evening-archive-card > .ghost-btn {
+    margin: 0 18px 18px;
   }
 
   .evening-batch-actions > .button-row,

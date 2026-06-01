@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
-import { clearToken, request, setToken } from './api'
+import { clearToken, downloadRequest, request, setToken } from './api'
 import authHeroArt from './assets/illustrations/auth-hero-crayon.png'
 import dashboardBannerArt from './assets/illustrations/dashboard-banner.jpg'
 import emptyStateArt from './assets/illustrations/empty-state.jpg'
@@ -19,6 +19,7 @@ const loading = ref(false)
 const generatingMonthlyDraft = ref(false)
 const generatingEveningBatch = ref(false)
 const savingEveningBatch = ref(false)
+const exportingEveningWord = ref(false)
 const message = ref('')
 const authMode = ref('login')
 
@@ -27,6 +28,8 @@ const currentStudent = ref(null)
 const feedbacks = ref([])
 const feedbackSearchResults = ref([])
 const eveningFeedbackSearchResults = ref([])
+const eveningFeedbackArchiveResults = ref([])
+const selectedEveningArchiveKeys = ref([])
 const detailFeedback = ref(null)
 const showCreateModal = ref(false)
 const showStudentModal = ref(false)
@@ -63,6 +66,8 @@ const showSettingsGuide = ref(false)
 const showFeedbackStyleModal = ref(false)
 const showAIConfigForm = ref(false)
 const showEveningBatchWorkbench = ref(false)
+const openEveningBatchAfterClassLoad = ref(false)
+const showEveningExportModal = ref(false)
 const activeStyleExampleType = ref('one_on_one')
 const showWritingReference = ref(false)
 const feedbackEntryMode = ref('raw')
@@ -154,6 +159,8 @@ const eveningStudentForm = reactive({ name: '', grade: '', school: '' })
 const monthlyForm = reactive(newMonthlyFeedback())
 const monthlyEditForm = reactive(newMonthlyFeedback())
 const eveningBatchForm = reactive(newEveningBatchForm())
+const eveningExportForm = reactive({ term_label: '', owner_name: '', export_subject: '', document_title: '' })
+const eveningExportSource = reactive({ mode: 'batch', class_id: null, class_name: '', period_type: '', period_value: '', count: 0 })
 const eveningBatchRows = ref([])
 const generationModelKey = ref('')
 const settingsModelKey = ref('')
@@ -305,6 +312,17 @@ const eveningBatchGenerateCount = computed(() =>
 const eveningBatchSaveCount = computed(() =>
   eveningBatchRows.value.filter((row) => row.final_feedback.trim()).length
 )
+const eveningBatchExportCount = computed(() => eveningBatchSaveCount.value)
+const eveningExportCount = computed(() => eveningExportSource.mode === 'archive' ? eveningExportSource.count : eveningBatchExportCount.value)
+const selectedEveningArchives = computed(() =>
+  eveningFeedbackArchiveResults.value.filter((archive) => selectedEveningArchiveKeys.value.includes(eveningArchiveKey(archive)))
+)
+const eveningExportFilenamePreview = computed(() => {
+  const suffix = `${eveningExportForm.owner_name.trim()}${eveningExportForm.export_subject.trim()}`.trim()
+  const className = eveningExportSource.class_name || currentClass.value?.name || ''
+  const base = `${eveningExportForm.term_label.trim()}${eveningExportPeriodLabel()}${className}晚辅反馈${suffix ? `——${suffix}` : ''}`
+  return `${safeDocxFilename(base)}.docx`
+})
 const eveningBatchDoneCount = computed(() => eveningBatchRows.value.filter((row) => row.feedback_id).length)
 const writingReferenceStyle = computed(() => ({
   left: `${writingReferenceFrame.left}px`,
@@ -393,6 +411,7 @@ function defaultEveningSearchRange() {
     start_date: dateInputValue(start),
     end_date: dateInputValue(end),
     period_type: '',
+    class_id: '',
     student_name: '',
   }
 }
@@ -417,6 +436,38 @@ function periodFieldLabel(type) {
 
 function periodTypeLabel(type) {
   return EVENING_PERIOD_TYPES.find((item) => item.value === type)?.label || '按月'
+}
+
+function eveningExportPeriodLabel() {
+  const type = eveningExportSource.period_type || eveningBatchForm.period_type
+  const value = eveningExportSource.period_value || eveningBatchForm.period_value || ''
+  if (type === 'day') {
+    const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+    return match ? `${Number(match[2])}.${Number(match[3])}` : value
+  }
+  if (type === 'week') {
+    const match = value.match(/^(\d{4})-W(\d{2})$/)
+    if (!match) return value
+    const start = isoWeekStartDate(Number(match[1]), Number(match[2]))
+    return `${start.getMonth() + 1}月第${Math.ceil(start.getDate() / 7)}周`
+  }
+  const match = value.match(/^(\d{4})-(\d{2})$/)
+  return match ? `${Number(match[2])}月` : value
+}
+
+function isoWeekStartDate(year, week) {
+  const date = new Date(year, 0, 1 + (week - 1) * 7)
+  const day = date.getDay() || 7
+  date.setDate(date.getDate() + (day <= 4 ? 1 - day : 8 - day))
+  return date
+}
+
+function safeDocxFilename(value) {
+  return String(value || '').replace(/[\\/:*?"<>|\r\n]+/g, '').trim() || '晚辅反馈'
+}
+
+function exportSubjectDefault() {
+  return eveningBatchForm.default_subject || eveningBatchRows.value.find((row) => row.subject)?.subject || ''
 }
 
 function totalPages(total) {
@@ -569,6 +620,21 @@ function titleForGenerate(title, lessonTime) {
   const date = lessonDateLabel(lessonTime)
   const base = stripTitleDate(title)
   return date ? `${base}（${date}）` : base
+}
+
+function lessonNumberFromTitle(title = '') {
+  const match = String(title).match(/第\s*(\d+)\s*次/)
+  return match ? Number.parseInt(match[1], 10) : null
+}
+
+function nextOneOnOneLessonNumber(history = []) {
+  const recentNumber = lessonNumberFromTitle(history[0]?.lesson_title)
+  if (recentNumber) return recentNumber + 1
+  const maxNumber = history.reduce((max, feedback) => {
+    const number = lessonNumberFromTitle(feedback.lesson_title)
+    return number && number > max ? number : max
+  }, 0)
+  return maxNumber ? maxNumber + 1 : history.length + 1
 }
 
 function defaultStyleExampleTitle() {
@@ -1404,9 +1470,20 @@ function eveningFeedbackSearchQuery() {
   if (eveningFeedbackSearchForm.start_date) params.set('start_date', eveningFeedbackSearchForm.start_date)
   if (eveningFeedbackSearchForm.end_date) params.set('end_date', eveningFeedbackSearchForm.end_date)
   if (eveningFeedbackSearchForm.period_type) params.set('period_type', eveningFeedbackSearchForm.period_type)
+  if (eveningFeedbackSearchForm.class_id) params.set('class_id', eveningFeedbackSearchForm.class_id)
   if (eveningFeedbackSearchForm.student_name?.trim()) params.set('student_name', eveningFeedbackSearchForm.student_name.trim())
   const query = params.toString()
   return query ? `/evening/feedbacks?${query}` : '/evening/feedbacks'
+}
+
+function eveningFeedbackArchiveQuery() {
+  const params = new URLSearchParams()
+  if (eveningFeedbackSearchForm.start_date) params.set('start_date', eveningFeedbackSearchForm.start_date)
+  if (eveningFeedbackSearchForm.end_date) params.set('end_date', eveningFeedbackSearchForm.end_date)
+  if (eveningFeedbackSearchForm.period_type) params.set('period_type', eveningFeedbackSearchForm.period_type)
+  if (eveningFeedbackSearchForm.class_id) params.set('class_id', eveningFeedbackSearchForm.class_id)
+  const query = params.toString()
+  return query ? `/evening/feedbacks/archive?${query}` : '/evening/feedbacks/archive'
 }
 
 async function loadFeedbackSearchResults() {
@@ -1429,8 +1506,16 @@ async function resetFeedbackSearch() {
 async function loadEveningFeedbackSearchResults() {
   loading.value = true
   try {
-    const data = await request(eveningFeedbackSearchQuery())
-    eveningFeedbackSearchResults.value = data.feedbacks
+    if (!eveningClasses.value.length) await loadEveningClasses()
+    const [feedbackData, archiveData] = await Promise.all([
+      request(eveningFeedbackSearchQuery()),
+      request(eveningFeedbackArchiveQuery()),
+    ])
+    eveningFeedbackSearchResults.value = feedbackData.feedbacks
+    eveningFeedbackArchiveResults.value = archiveData.archives || []
+    selectedEveningArchiveKeys.value = selectedEveningArchiveKeys.value.filter((key) =>
+      eveningFeedbackArchiveResults.value.some((archive) => eveningArchiveKey(archive) === key)
+    )
   } catch (error) {
     showMessage(error.message)
   } finally {
@@ -1441,6 +1526,66 @@ async function loadEveningFeedbackSearchResults() {
 async function resetEveningFeedbackSearch() {
   Object.assign(eveningFeedbackSearchForm, defaultEveningSearchRange())
   await loadEveningFeedbackSearchResults()
+}
+
+function eveningArchiveKey(archive) {
+  return `${archive.class_id}:${archive.period_type}:${archive.period_value}`
+}
+
+function toggleEveningArchiveSelection(archive) {
+  const key = eveningArchiveKey(archive)
+  selectedEveningArchiveKeys.value = selectedEveningArchiveKeys.value.includes(key)
+    ? selectedEveningArchiveKeys.value.filter((item) => item !== key)
+    : [...selectedEveningArchiveKeys.value, key]
+}
+
+function toggleAllEveningArchiveSelection() {
+  if (selectedEveningArchiveKeys.value.length === eveningFeedbackArchiveResults.value.length) {
+    selectedEveningArchiveKeys.value = []
+  } else {
+    selectedEveningArchiveKeys.value = eveningFeedbackArchiveResults.value.map(eveningArchiveKey)
+  }
+}
+
+function openEveningArchiveInClass(archive) {
+  setEveningBatchPeriodType(archive.period_type)
+  eveningBatchForm.period_value = archive.period_value
+  openEveningBatchAfterClassLoad.value = true
+  go(`#/evening/classes/${archive.class_id}`)
+}
+
+async function deleteEveningArchiveItems(archives, scopeText) {
+  if (!archives.length) return showMessage('请选择要删除的反馈归档')
+  const feedbackCount = archives.reduce((total, archive) => total + Number(archive.feedback_count || 0), 0)
+  if (!window.confirm(`确定删除${scopeText}的 ${archives.length} 个归档、共 ${feedbackCount} 条晚辅反馈吗？删除后无法恢复。`)) return
+  loading.value = true
+  try {
+    const data = await request('/evening/feedbacks/archive/batch', {
+      method: 'DELETE',
+      body: JSON.stringify({
+        items: archives.map((archive) => ({
+          class_id: archive.class_id,
+          period_type: archive.period_type,
+          period_value: archive.period_value,
+        })),
+      }),
+    })
+    selectedEveningArchiveKeys.value = []
+    await loadEveningFeedbackSearchResults()
+    showMessage(`已删除 ${data.deleted_count || 0} 条晚辅反馈`)
+  } catch (error) {
+    showMessage(error.message)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function deleteSelectedEveningArchives() {
+  await deleteEveningArchiveItems(selectedEveningArchives.value, '选中')
+}
+
+async function deleteCurrentEveningArchiveResults() {
+  await deleteEveningArchiveItems(eveningFeedbackArchiveResults.value, '当前查询结果下')
 }
 
 function clearStudentHistoryFilter() {
@@ -1521,7 +1666,7 @@ async function openCreateFeedback() {
   resetFeedbackPanels()
   const subject = currentStudent.value?.subject || '课程'
   const displayName = studentDisplayName(currentStudent.value?.name || '学生')
-  feedbackForm.lesson_title = `${displayName}第${feedbacks.value.length + 1}次${subject}课`
+  feedbackForm.lesson_title = `${displayName}第${nextOneOnOneLessonNumber(feedbacks.value)}次${subject}课`
   try {
     await Promise.all([loadStyleExamples(), ensureAISettingsLoaded()])
   } catch (error) {
@@ -2011,7 +2156,7 @@ async function deleteGroupClass() {
 }
 
 async function loadEveningClassContext() {
-  showEveningBatchWorkbench.value = false
+  if (!openEveningBatchAfterClassLoad.value) showEveningBatchWorkbench.value = false
   const id = route.value.split('/')[3]
   const [classData, studentData] = await Promise.all([
     request(`/evening/classes/${id}`),
@@ -2021,6 +2166,10 @@ async function loadEveningClassContext() {
   eveningStudents.value = studentData.students
   await ensureAISettingsLoaded()
   await loadEveningBatchFeedbacks()
+  if (openEveningBatchAfterClassLoad.value) {
+    showEveningBatchWorkbench.value = true
+    openEveningBatchAfterClassLoad.value = false
+  }
 }
 
 async function loadEveningBatchFeedbacks() {
@@ -2176,6 +2325,87 @@ async function saveEveningBatchFeedbacks() {
   await saveEveningBatchRows(
     eveningBatchRows.value.filter((row) => row.final_feedback.trim())
   )
+}
+
+function openEveningBatchExportModal() {
+  if (!eveningBatchExportCount.value) return showMessage('没有可导出的晚辅反馈')
+  Object.assign(eveningExportSource, {
+    mode: 'batch',
+    class_id: currentClass.value?.id || null,
+    class_name: currentClass.value?.name || '',
+    period_type: eveningBatchForm.period_type,
+    period_value: eveningBatchForm.period_value,
+    count: eveningBatchExportCount.value,
+  })
+  eveningExportForm.export_subject = exportSubjectDefault()
+  eveningExportForm.document_title = `${eveningExportForm.term_label || ''}${currentClass.value?.name || ''}晚辅`
+  showEveningExportModal.value = true
+}
+
+function openEveningArchiveExportModal(archive) {
+  if (!archive?.feedback_count) return showMessage('没有可导出的晚辅反馈')
+  Object.assign(eveningExportSource, {
+    mode: 'archive',
+    class_id: archive.class_id || currentClass.value?.id || null,
+    class_name: archive.class_name || currentClass.value?.name || '',
+    period_type: archive.period_type,
+    period_value: archive.period_value,
+    count: archive.feedback_count,
+  })
+  eveningExportForm.export_subject = archive.subjects?.split(',').filter(Boolean).join('、') || exportSubjectDefault()
+  eveningExportForm.document_title = `${eveningExportForm.term_label || ''}${eveningExportSource.class_name || ''}晚辅`
+  showEveningExportModal.value = true
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename || '晚辅反馈.docx'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
+async function exportEveningBatchWord() {
+  const isArchiveExport = eveningExportSource.mode === 'archive'
+  const rows = eveningBatchRows.value.filter((row) => row.final_feedback.trim())
+  if (!isArchiveExport && !rows.length) return showMessage('没有可导出的晚辅反馈')
+  if (!eveningExportSource.period_value) return showMessage('请选择反馈时间')
+  exportingEveningWord.value = true
+  try {
+    const payload = {
+      period_type: eveningExportSource.period_type,
+      period_value: eveningExportSource.period_value,
+      term_label: eveningExportForm.term_label,
+      owner_name: eveningExportForm.owner_name,
+      export_subject: eveningExportForm.export_subject,
+      document_title: eveningExportForm.document_title,
+    }
+    if (!isArchiveExport) {
+      payload.items = rows.map((row) => ({
+        student_id: row.student_id,
+        student_name: row.student_name,
+        final_feedback: row.final_feedback,
+      }))
+    }
+    const exportClassId = eveningExportSource.class_id || currentClass.value?.id
+    const endpoint = isArchiveExport
+      ? `/evening/classes/${exportClassId}/feedbacks/archive/export`
+      : `/evening/classes/${exportClassId}/feedbacks/batch/export`
+    const { blob, filename } = await downloadRequest(endpoint, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+    downloadBlob(blob, filename)
+    showEveningExportModal.value = false
+    showMessage('已导出 Word')
+  } catch (error) {
+    showMessage(error.message)
+  } finally {
+    exportingEveningWord.value = false
+  }
 }
 
 async function saveEveningBatchRow(row) {
@@ -2583,19 +2813,48 @@ onMounted(async () => {
           <form class="paper-card query-panel" @submit.prevent="loadEveningFeedbackSearchResults">
             <div>
               <p class="eyebrow">Evening Search</p>
-              <h3>按时间查找晚辅反馈</h3>
-              <small>{{ searchRangeLabel(eveningFeedbackSearchForm.start_date, eveningFeedbackSearchForm.end_date) }} · {{ eveningFeedbackSearchResults.length }} 条结果</small>
+              <h3>晚辅反馈归档</h3>
+              <small>{{ searchRangeLabel(eveningFeedbackSearchForm.start_date, eveningFeedbackSearchForm.end_date) }} · {{ eveningFeedbackArchiveResults.length }} 个归档 · {{ eveningFeedbackSearchResults.length }} 条明细</small>
             </div>
+            <label>晚辅班级<select v-model="eveningFeedbackSearchForm.class_id"><option value="">全部班级</option><option v-for="cls in eveningClasses" :key="cls.id" :value="cls.id">{{ cls.name }}</option></select></label>
             <label>反馈类型<select v-model="eveningFeedbackSearchForm.period_type"><option value="">全部</option><option v-for="type in EVENING_PERIOD_TYPES" :key="type.value" :value="type.value">{{ type.label }}</option></select></label>
-            <label>学生姓名<input v-model="eveningFeedbackSearchForm.student_name" placeholder="输入姓名关键字" /></label>
+            <label>学生姓名（仅筛选明细）<input v-model="eveningFeedbackSearchForm.student_name" placeholder="输入姓名关键字" /></label>
             <label>开始日期<input v-model="eveningFeedbackSearchForm.start_date" type="date" /></label>
             <label>结束日期<input v-model="eveningFeedbackSearchForm.end_date" type="date" /></label>
             <div class="button-row">
               <button class="primary-btn" :disabled="loading">查询</button>
               <button type="button" class="ghost-btn" :disabled="loading" @click="resetEveningFeedbackSearch">最近 90 天</button>
-              <button type="button" class="ghost-btn" :disabled="loading" @click="eveningFeedbackSearchForm.start_date = ''; eveningFeedbackSearchForm.end_date = ''; eveningFeedbackSearchForm.period_type = ''; eveningFeedbackSearchForm.student_name = ''; loadEveningFeedbackSearchResults()">清空</button>
+              <button type="button" class="ghost-btn" :disabled="loading" @click="eveningFeedbackSearchForm.start_date = ''; eveningFeedbackSearchForm.end_date = ''; eveningFeedbackSearchForm.period_type = ''; eveningFeedbackSearchForm.class_id = ''; eveningFeedbackSearchForm.student_name = ''; loadEveningFeedbackSearchResults()">清空</button>
             </div>
           </form>
+          <section class="paper-card evening-archive-panel">
+            <div class="history-header">
+              <div>
+                <h3>班级归档目录</h3>
+                <small>按班级和周期管理，可导出整班 Word，也可批量删除归档。</small>
+              </div>
+              <div class="button-row">
+                <button type="button" class="ghost-btn" :disabled="!eveningFeedbackArchiveResults.length" @click="toggleAllEveningArchiveSelection">{{ selectedEveningArchiveKeys.length === eveningFeedbackArchiveResults.length && eveningFeedbackArchiveResults.length ? '取消全选' : '全选当前' }}</button>
+                <button type="button" class="danger-btn" :disabled="loading || !selectedEveningArchiveKeys.length" @click="deleteSelectedEveningArchives">删除选中</button>
+                <button type="button" class="danger-btn" :disabled="loading || !eveningFeedbackArchiveResults.length" @click="deleteCurrentEveningArchiveResults">删除当前查询结果</button>
+              </div>
+            </div>
+            <div v-if="eveningFeedbackArchiveResults.length" class="history-list evening-archive-list">
+              <article v-for="archive in eveningFeedbackArchiveResults" :key="eveningArchiveKey(archive)" class="history-card evening-archive-card" :class="{ selected: selectedEveningArchiveKeys.includes(eveningArchiveKey(archive)) }">
+                <label class="archive-select-check" @click.stop>
+                  <input type="checkbox" :checked="selectedEveningArchiveKeys.includes(eveningArchiveKey(archive))" @change="toggleEveningArchiveSelection(archive)" />
+                </label>
+                <button class="feedback-card-main" type="button" @click="openEveningArchiveInClass(archive)">
+                  <strong>{{ archive.class_name }} · {{ archive.period_label }}</strong>
+                  <span>{{ periodTypeLabel(archive.period_type) }} · {{ archive.feedback_count }} 条反馈 · {{ archive.subjects ? archive.subjects.split(',').join('、') : '未填学科' }}</span>
+                  <small>点击进入班级，可继续按学生处理该班反馈。</small>
+                </button>
+                <button type="button" class="ghost-btn" :disabled="exportingEveningWord" @click="openEveningArchiveExportModal(archive)">导出 Word</button>
+              </article>
+            </div>
+            <div v-else class="empty-state small"><span>当前条件下没有晚辅反馈归档。</span></div>
+          </section>
+          <div class="history-header"><h3>反馈明细</h3><small>用于查看或编辑单个学生的反馈。</small></div>
           <div class="history-list">
             <button v-for="feedback in eveningFeedbackSearchResults" :key="feedback.id" class="history-card" type="button" @click="openEveningDetail(feedback)">
               <strong>{{ feedback.student_name }} · {{ feedback.period_label }}</strong>
@@ -2750,11 +3009,12 @@ onMounted(async () => {
             </div>
             <div class="evening-batch-actions">
               <span>{{ eveningBatchFilledRows.length }} 行已填写 · {{ eveningBatchGenerateCount }} 行可生成 · {{ eveningBatchSaveCount }} 行可保存</span>
-              <div class="button-row">
-                <button type="button" class="ghost-btn loading-action-btn" :class="{ loading: generatingEveningBatch }" :disabled="generatingEveningBatch || savingEveningBatch || !eveningBatchGenerateCount" @click="generateEveningBatchDrafts()">{{ generatingEveningBatch ? '生成中...' : '批量生成初稿' }}</button>
-                <button type="button" class="primary-btn loading-action-btn" :class="{ loading: savingEveningBatch }" :disabled="generatingEveningBatch || savingEveningBatch || !eveningBatchSaveCount" @click="saveEveningBatchFeedbacks">{{ savingEveningBatch ? '保存中...' : '批量保存反馈' }}</button>
-              </div>
-            </div>
+	              <div class="button-row">
+	                <button type="button" class="ghost-btn loading-action-btn" :class="{ loading: generatingEveningBatch }" :disabled="generatingEveningBatch || savingEveningBatch || !eveningBatchGenerateCount" @click="generateEveningBatchDrafts()">{{ generatingEveningBatch ? '生成中...' : '批量生成初稿' }}</button>
+	                <button type="button" class="primary-btn loading-action-btn" :class="{ loading: savingEveningBatch }" :disabled="generatingEveningBatch || savingEveningBatch || !eveningBatchSaveCount" @click="saveEveningBatchFeedbacks">{{ savingEveningBatch ? '保存中...' : '批量保存反馈' }}</button>
+	                <button type="button" class="ghost-btn loading-action-btn" :class="{ loading: exportingEveningWord }" :disabled="generatingEveningBatch || savingEveningBatch || exportingEveningWord || !eveningBatchExportCount" @click="openEveningBatchExportModal">{{ exportingEveningWord ? '导出中...' : '导出 Word' }}</button>
+	              </div>
+	            </div>
             <div v-if="eveningBatchRows.length" class="evening-batch-table-wrap">
               <table class="evening-batch-table">
                 <thead>
@@ -3315,6 +3575,22 @@ onMounted(async () => {
         <label>{{ subjectWorkLabel(monthlyForm.subject) }}完成情况简述<textarea v-model="monthlyForm.homework_summary" class="auto-textarea" @input="autoResize"></textarea></label>
         <div class="button-row"><button type="button" class="ghost-btn loading-action-btn" :class="{ loading: generatingMonthlyDraft }" :disabled="loading" @click="generateMonthlyDraft">{{ generatingMonthlyDraft ? '生成中...' : '生成 AI 初稿' }}</button><button class="primary-btn" :disabled="loading">保存晚辅反馈</button></div>
         <label>AI 初稿<textarea v-model="monthlyForm.ai_draft" class="auto-textarea large-text" @input="autoResize"></textarea></label><label>最终反馈<textarea v-model="monthlyForm.final_feedback" class="auto-textarea final-text" @input="autoResize"></textarea></label>
+      </form>
+    </div>
+
+    <div v-if="showEveningExportModal" class="modal-mask">
+      <form class="paper-card modal-panel feedback-editor" @submit.prevent="exportEveningBatchWord">
+        <div class="modal-title"><h3>导出晚辅反馈 Word</h3><button type="button" class="icon-btn" @click="showEveningExportModal = false">×</button></div>
+        <label>学期 / 阶段<input v-model="eveningExportForm.term_label" placeholder="例如：26春季" /></label>
+        <label>负责人 / 老师<input v-model="eveningExportForm.owner_name" placeholder="例如：王小明" /></label>
+        <label>导出科目<input v-model="eveningExportForm.export_subject" placeholder="例如：数学" /></label>
+        <label>Word 第一行标题<input v-model="eveningExportForm.document_title" placeholder="例如：启程26春季七年级D班晚辅" /></label>
+        <div class="filename-preview-box" aria-live="polite">
+          <span>下载文件名</span>
+          <strong>{{ eveningExportFilenamePreview }}</strong>
+        </div>
+        <p class="settings-hint">{{ eveningExportSource.mode === 'archive' ? '将导出班级历史归档中' : '将导出当前批量表中' }} {{ eveningExportCount }} 条有最终反馈的内容，{{ eveningExportSource.mode === 'archive' ? '按已保存内容生成 Word。' : '未保存的修改也会一起导出。' }}</p>
+        <div class="button-row"><button type="button" class="ghost-btn" :disabled="exportingEveningWord" @click="showEveningExportModal = false">取消</button><button class="primary-btn loading-action-btn" :class="{ loading: exportingEveningWord }" :disabled="exportingEveningWord">{{ exportingEveningWord ? '导出中...' : '下载 Word' }}</button></div>
       </form>
     </div>
 

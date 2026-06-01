@@ -30,6 +30,10 @@ const FIELD_LABELS = {
   content: '反馈样例',
   enabled: '启用状态',
   feedback_type: '样例类型',
+  term_label: '学期 / 阶段',
+  owner_name: '负责人 / 老师',
+  export_subject: '导出科目',
+  document_title: 'Word 标题',
 }
 
 export function getToken() {
@@ -87,4 +91,39 @@ export async function request(path, options = {}) {
     throw new Error(formatErrorDetail(data.detail))
   }
   return data
+}
+
+export async function downloadRequest(path, options = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(options.headers || {}),
+  }
+  const token = getToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  let response
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers,
+    })
+  } catch (error) {
+    throw new Error('无法连接后端服务，或本次请求已超时/被中断，请确认后端正在运行后重试')
+  }
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}))
+    throw new Error(formatErrorDetail(data.detail))
+  }
+  return {
+    blob: await response.blob(),
+    filename: parseDownloadFilename(response.headers.get('Content-Disposition') || ''),
+  }
+}
+
+function parseDownloadFilename(disposition) {
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+  if (encoded) return decodeURIComponent(encoded)
+  const plain = disposition.match(/filename="?([^";]+)"?/i)?.[1]
+  return plain || ''
 }

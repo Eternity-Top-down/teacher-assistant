@@ -1,4 +1,7 @@
 import asyncio
+import re
+from io import BytesIO
+from urllib.parse import quote
 from datetime import datetime, timedelta
 
 import sqlite3
@@ -6,6 +9,7 @@ import sqlite3
 import httpx
 from fastapi import FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from .ai_client import generate_evening_feedback, generate_feedback, organize_lesson_note
 from .ai_settings import (
@@ -31,6 +35,9 @@ from .schemas import (
     EmailCodeRequest,
     EveningClassCreate,
     EveningClassUpdate,
+    EveningFeedbackClassExportRequest,
+    EveningFeedbackArchiveDeleteRequest,
+    EveningFeedbackBatchExportRequest,
     EveningFeedbackBatchGenerateRequest,
     EveningFeedbackBatchSaveRequest,
     EveningFeedbackCreate,
@@ -192,6 +199,114 @@ def lesson_date_label(lesson_time: str) -> str:
         return f"{value.month}.{value.day}"
     except ValueError:
         return lesson_time[:10] or "本次"
+
+
+def lesson_number_from_title(title: str | None) -> int | None:
+    match = re.search(r"第\s*(\d+)\s*次", title or "")
+    return int(match.group(1)) if match else None
+
+
+def next_lesson_number_from_feedbacks(feedbacks: list[dict]) -> int:
+    recent_number = lesson_number_from_title(feedbacks[0]["lesson_title"]) if feedbacks else None
+    if recent_number:
+        return recent_number + 1
+    max_number = max(
+        (number for feedback in feedbacks if (number := lesson_number_from_title(feedback["lesson_title"]))),
+        default=0,
+    )
+    return max_number + 1 if max_number else len(feedbacks) + 1
+
+
+def safe_docx_filename(value: str) -> str:
+    cleaned = re.sub(r'[\\/:*?"<>|\r\n]+', "", value).strip()
+    return cleaned or "晚辅反馈"
+
+
+def export_period_filename_label(period: dict[str, str]) -> str:
+    period_type = period.get("period_type")
+    period_value = period.get("period_value", "")
+    try:
+        if period_type == "day":
+            value = datetime.strptime(period_value, "%Y-%m-%d").date()
+            return f"{value.month}.{value.day}"
+        if period_type == "week":
+            iso_year_text, iso_week_text = period_value.split("-W", 1)
+            start = datetime.fromisocalendar(int(iso_year_text), int(iso_week_text), 1).date()
+            return f"{start.month}月第{((start.day - 1) // 7) + 1}周"
+        if period_type == "month":
+            value = datetime.strptime(period_value, "%Y-%m").date()
+            return f"{value.month}月"
+    except (TypeError, ValueError):
+        pass
+    return period.get("period_label", period_value)
+
+
+def evening_feedback_word_response(
+    evening_class: dict,
+    period: dict[str, str],
+    term_label: str,
+    owner_name: str,
+    export_subject: str,
+    document_title: str,
+    export_items: list[dict[str, str]],
+) -> StreamingResponse:
+    if not export_items:
+        raise HTTPException(status_code=400, detail="没有可导出的晚辅反馈")
+
+    try:
+        from docx import Document
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.oxml.ns import qn
+        from docx.shared import Pt
+    except ImportError as exc:
+        raise HTTPException(status_code=500, detail="服务器未安装 Word 导出依赖 python-docx") from exc
+
+    document = Document()
+    normal_style = document.styles["Normal"]
+    normal_style.font.name = "宋体"
+    normal_style._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
+    normal_style.font.size = Pt(11)
+
+    title_text = document_title.strip() or f"{term_label.strip()}{evening_class['name']}晚辅"
+    title = document.add_paragraph()
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title_run = title.add_run(title_text.strip())
+    title_run.bold = True
+    title_run.font.name = "宋体"
+    title_run._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
+    title_run.font.size = Pt(18)
+
+    document.add_paragraph()
+    for item in export_items:
+        paragraph = document.add_paragraph()
+        paragraph.paragraph_format.space_after = Pt(8)
+        name_run = paragraph.add_run(f"{item['student_name']}：")
+        name_run.bold = True
+        name_run.font.name = "宋体"
+        name_run._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
+        content_run = paragraph.add_run(item["final_feedback"])
+        content_run.font.name = "宋体"
+        content_run._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
+
+    buffer = BytesIO()
+    document.save(buffer)
+    buffer.seek(0)
+
+    suffix = f"{owner_name.strip()}{export_subject.strip()}".strip()
+    filename_base = safe_docx_filename(
+        f"{term_label.strip()}{export_period_filename_label(period)}{evening_class['name']}晚辅反馈"
+        f"{f'——{suffix}' if suffix else ''}"
+    )
+    filename = f"{filename_base}.docx"
+    encoded_filename = quote(filename)
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+    }
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers=headers,
+    )
 
 
 def normalize_style_feedback_type(feedback_type: str) -> str:
@@ -684,10 +799,16 @@ async def organize_feedback_note(student_id: int, payload: FeedbackOrganizeReque
 async def create_ai_draft(student_id: int, payload: FeedbackGenerateRequest, teacher: dict = CurrentTeacher):
     student = require_student(student_id, teacher["id"])
     with get_db() as db:
-        feedback_count = db.execute(
-            "SELECT COUNT(*) AS count FROM feedbacks WHERE student_id = ? AND teacher_id = ?",
+        feedback_rows = db.execute(
+            """
+            SELECT lesson_title
+            FROM feedbacks
+            WHERE student_id = ? AND teacher_id = ?
+            ORDER BY lesson_time DESC, id DESC
+            """,
             (student_id, teacher["id"]),
-        ).fetchone()["count"]
+        ).fetchall()
+    lesson_number = next_lesson_number_from_feedbacks([dict(row) for row in feedback_rows])
     ai_config = require_teacher_ai_config(
         teacher["id"],
         model_type=payload.model_type,
@@ -698,7 +819,7 @@ async def create_ai_draft(student_id: int, payload: FeedbackGenerateRequest, tea
         draft = await generate_feedback(
             student_name=student["name"],
             subject=student["subject"] or "数学",
-            lesson_number=feedback_count + 1,
+            lesson_number=lesson_number,
             lesson_title=payload.lesson_title,
             lesson_date=lesson_date_label(payload.lesson_time),
             lesson_summary=payload.lesson_summary,
@@ -1049,6 +1170,7 @@ def search_evening_feedbacks(
     end_date: str = Query(default=""),
     period_type: str = Query(default=""),
     student_name: str = Query(default=""),
+    class_id: int | None = Query(default=None),
     teacher: dict = CurrentTeacher,
 ):
     query = """
@@ -1059,6 +1181,10 @@ def search_evening_feedbacks(
         WHERE f.teacher_id = ?
     """
     params: list[str | int] = [teacher["id"]]
+    if class_id:
+        require_evening_class(class_id, teacher["id"])
+        query += " AND c.id = ?"
+        params.append(class_id)
     if period_type:
         if period_type not in {"day", "week", "month"}:
             raise HTTPException(status_code=400, detail="反馈类型无效")
@@ -1077,6 +1203,57 @@ def search_evening_feedbacks(
     with get_db() as db:
         rows = db.execute(query, params).fetchall()
     return {"feedbacks": [dict(row) for row in rows]}
+
+
+@app.get("/api/evening/feedbacks/archive")
+def search_evening_feedback_archives(
+    start_date: str = Query(default=""),
+    end_date: str = Query(default=""),
+    period_type: str = Query(default=""),
+    class_id: int | None = Query(default=None),
+    teacher: dict = CurrentTeacher,
+):
+    query = """
+        SELECT
+            c.id AS class_id,
+            c.name AS class_name,
+            f.period_type,
+            f.period_value,
+            f.period_start,
+            f.period_end,
+            f.period_label,
+            COUNT(f.id) AS feedback_count,
+            GROUP_CONCAT(DISTINCT NULLIF(f.subject, '')) AS subjects,
+            MAX(f.id) AS latest_id,
+            MAX(f.updated_at) AS updated_at
+        FROM evening_feedbacks f
+        JOIN evening_students s ON s.id = f.student_id
+        JOIN evening_classes c ON c.id = s.class_id
+        WHERE f.teacher_id = ?
+    """
+    params: list[str | int] = [teacher["id"]]
+    if class_id:
+        require_evening_class(class_id, teacher["id"])
+        query += " AND c.id = ?"
+        params.append(class_id)
+    if period_type:
+        if period_type not in {"day", "week", "month"}:
+            raise HTTPException(status_code=400, detail="反馈类型无效")
+        query += " AND f.period_type = ?"
+        params.append(period_type)
+    if start_date:
+        query += " AND f.period_end >= ?"
+        params.append(start_date[:10])
+    if end_date:
+        query += " AND f.period_start <= ?"
+        params.append(end_date[:10])
+    query += """
+        GROUP BY c.id, c.name, f.period_type, f.period_value, f.period_start, f.period_end, f.period_label
+        ORDER BY f.period_start DESC, latest_id DESC
+    """
+    with get_db() as db:
+        rows = db.execute(query, params).fetchall()
+    return {"archives": [dict(row) for row in rows]}
 
 
 def evening_batch_feedback_row(db: sqlite3.Connection, feedback_id: int, teacher_id: int) -> dict:
@@ -1161,6 +1338,151 @@ def get_evening_feedback_batch(
             }
         )
     return {"period": period, "items": items}
+
+
+@app.get("/api/evening/classes/{class_id}/feedbacks/archive")
+def list_evening_class_feedback_archive(class_id: int, teacher: dict = CurrentTeacher):
+    require_evening_class(class_id, teacher["id"])
+    with get_db() as db:
+        rows = db.execute(
+            """
+            SELECT
+                f.period_type,
+                f.period_value,
+                f.period_start,
+                f.period_end,
+                f.period_label,
+                COUNT(f.id) AS feedback_count,
+                GROUP_CONCAT(DISTINCT NULLIF(f.subject, '')) AS subjects,
+                MAX(f.id) AS latest_id,
+                MAX(f.updated_at) AS updated_at
+            FROM evening_feedbacks f
+            JOIN evening_students s ON s.id = f.student_id
+            WHERE f.teacher_id = ? AND s.class_id = ?
+            GROUP BY f.period_type, f.period_value, f.period_start, f.period_end, f.period_label
+            ORDER BY f.period_start DESC, latest_id DESC
+            """,
+            (teacher["id"], class_id),
+        ).fetchall()
+    return {"archives": [dict(row) for row in rows]}
+
+
+@app.post("/api/evening/classes/{class_id}/feedbacks/batch/export")
+def export_evening_feedback_batch(
+    class_id: int,
+    payload: EveningFeedbackBatchExportRequest,
+    teacher: dict = CurrentTeacher,
+):
+    evening_class = require_evening_class(class_id, teacher["id"])
+    period = evening_period_meta(payload.period_type, payload.period_value)
+    export_items = [item for item in payload.items if item.final_feedback.strip()]
+    if not export_items:
+        raise HTTPException(status_code=400, detail="没有可导出的晚辅反馈")
+
+    student_ids = [item.student_id for item in export_items]
+    placeholders = ",".join("?" for _ in student_ids)
+    with get_db() as db:
+        rows = db.execute(
+            f"""
+            SELECT id, name
+            FROM evening_students
+            WHERE teacher_id = ? AND class_id = ? AND id IN ({placeholders})
+            """,
+            (teacher["id"], class_id, *student_ids),
+        ).fetchall()
+    student_map = {row["id"]: row["name"] for row in rows}
+    if len(student_map) != len(set(student_ids)):
+        raise HTTPException(status_code=400, detail="导出学生不属于当前晚辅班级")
+    return evening_feedback_word_response(
+        evening_class=evening_class,
+        period=period,
+        term_label=payload.term_label,
+        owner_name=payload.owner_name,
+        export_subject=payload.export_subject,
+        document_title=payload.document_title,
+        export_items=[
+            {
+                "student_name": item.student_name.strip() or student_map[item.student_id],
+                "final_feedback": item.final_feedback.strip(),
+            }
+            for item in export_items
+        ],
+    )
+
+
+@app.post("/api/evening/classes/{class_id}/feedbacks/archive/export")
+def export_evening_feedback_archive(
+    class_id: int,
+    payload: EveningFeedbackClassExportRequest,
+    teacher: dict = CurrentTeacher,
+):
+    evening_class = require_evening_class(class_id, teacher["id"])
+    period = evening_period_meta(payload.period_type, payload.period_value)
+    with get_db() as db:
+        rows = db.execute(
+            """
+            SELECT s.name AS student_name, f.final_feedback
+            FROM evening_feedbacks f
+            JOIN evening_students s ON s.id = f.student_id
+            WHERE f.teacher_id = ?
+              AND s.teacher_id = ?
+              AND s.class_id = ?
+              AND f.period_type = ?
+              AND f.period_value = ?
+              AND TRIM(f.final_feedback) != ''
+            ORDER BY s.id DESC, f.id DESC
+            """,
+            (teacher["id"], teacher["id"], class_id, period["period_type"], period["period_value"]),
+        ).fetchall()
+    export_items = [
+        {"student_name": row["student_name"], "final_feedback": row["final_feedback"].strip()}
+        for row in rows
+    ]
+    return evening_feedback_word_response(
+        evening_class=evening_class,
+        period=period,
+        term_label=payload.term_label,
+        owner_name=payload.owner_name,
+        export_subject=payload.export_subject,
+        document_title=payload.document_title,
+        export_items=export_items,
+    )
+
+
+@app.delete("/api/evening/feedbacks/archive/batch")
+def delete_evening_feedback_archives(
+    payload: EveningFeedbackArchiveDeleteRequest,
+    teacher: dict = CurrentTeacher,
+):
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="请选择要删除的反馈归档")
+
+    deleted_count = 0
+    with get_db() as db:
+        for item in payload.items:
+            evening_class = require_evening_class(item.class_id, teacher["id"])
+            period = evening_period_meta(item.period_type, item.period_value)
+            cursor = db.execute(
+                """
+                DELETE FROM evening_feedbacks
+                WHERE teacher_id = ?
+                  AND period_type = ?
+                  AND period_value = ?
+                  AND student_id IN (
+                    SELECT id FROM evening_students
+                    WHERE teacher_id = ? AND class_id = ?
+                  )
+                """,
+                (
+                    teacher["id"],
+                    period["period_type"],
+                    period["period_value"],
+                    teacher["id"],
+                    evening_class["id"],
+                ),
+            )
+            deleted_count += cursor.rowcount or 0
+    return {"ok": True, "deleted_count": deleted_count}
 
 
 @app.post("/api/evening/classes/{class_id}/feedbacks/batch/generate")

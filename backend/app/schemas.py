@@ -176,6 +176,35 @@ class EveningFeedbackBatchSaveRequest(EveningFeedbackBatchPeriod):
     items: list[EveningFeedbackBatchSaveItem] = Field(default_factory=list, max_length=200)
 
 
+class EveningFeedbackBatchExportItem(BaseModel):
+    student_id: int
+    student_name: str = Field(default="", max_length=50)
+    final_feedback: str = Field(default="", max_length=5000)
+
+
+class EveningFeedbackBatchExportRequest(EveningFeedbackBatchPeriod):
+    term_label: str = Field(default="", max_length=40)
+    owner_name: str = Field(default="", max_length=40)
+    export_subject: str = Field(default="", max_length=50)
+    document_title: str = Field(default="", max_length=120)
+    items: list[EveningFeedbackBatchExportItem] = Field(default_factory=list, max_length=200)
+
+
+class EveningFeedbackClassExportRequest(EveningFeedbackBatchPeriod):
+    term_label: str = Field(default="", max_length=40)
+    owner_name: str = Field(default="", max_length=40)
+    export_subject: str = Field(default="", max_length=50)
+    document_title: str = Field(default="", max_length=120)
+
+
+class EveningFeedbackArchiveItem(EveningFeedbackBatchPeriod):
+    class_id: int
+
+
+class EveningFeedbackArchiveDeleteRequest(BaseModel):
+    items: list[EveningFeedbackArchiveItem] = Field(default_factory=list, max_length=200)
+
+
 class AISettingsUpdate(BaseModel):
     provider: str = Field(default="deepseek", max_length=50)
     base_url: str = Field(min_length=1, max_length=300)
