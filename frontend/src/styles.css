@@ -733,6 +733,21 @@ select:focus {
   padding: 0;
 }
 
+.selectable-feedback-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.selectable-feedback-card.selected {
+  background: #f2fff0;
+}
+
+.selectable-feedback-card .archive-select-check {
+  min-height: auto;
+  padding: 0 0 0 18px;
+}
+
 .feedback-card-main {
   display: grid;
   gap: 8px;
@@ -879,6 +894,13 @@ select:focus {
   box-shadow: 0 8px 18px rgba(44, 60, 78, 0.08);
 }
 
+.filename-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .filename-preview-box span {
   color: #8a5a12;
   font-size: 13px;
@@ -891,6 +913,17 @@ select:focus {
   font-size: 15px;
   line-height: 1.6;
   overflow-wrap: anywhere;
+}
+
+.filename-preview-box input {
+  width: 100%;
+  border-color: rgba(245, 189, 69, 0.86);
+  background: #fffdf6;
+}
+
+.filename-preview-box small {
+  color: var(--muted);
+  font-weight: 700;
 }
 
 .settings-status {
@@ -2325,17 +2358,34 @@ body::before {
   border-color: var(--green);
 }
 
+.evening-detail-panel {
+  display: grid;
+  gap: 16px;
+  padding: 22px;
+  border-color: var(--blue);
+}
+
+.evening-detail-panel.collapsed {
+  gap: 0;
+}
+
 .evening-archive-list {
   gap: 12px;
 }
 
-.evening-archive-card {
+.evening-archive-card,
+.evening-detail-card {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   padding: 0;
 }
 
-.evening-archive-card.selected {
+.evening-detail-card {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.evening-archive-card.selected,
+.evening-detail-card.selected {
   background: #f2fff0;
 }
 
@@ -2352,7 +2402,8 @@ body::before {
   accent-color: var(--green);
 }
 
-.evening-archive-card .feedback-card-main {
+.evening-archive-card .feedback-card-main,
+.evening-detail-card .feedback-card-main {
   padding: 18px 20px;
 }
 
@@ -2924,7 +2975,8 @@ body::before {
     grid-template-columns: 1fr;
   }
 
-  .evening-archive-card {
+  .evening-archive-card,
+  .evening-detail-card {
     grid-template-columns: 1fr;
   }
 

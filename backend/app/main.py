@@ -37,6 +37,7 @@ from .schemas import (
     EveningClassUpdate,
     EveningFeedbackClassExportRequest,
     EveningFeedbackArchiveDeleteRequest,
+    EveningFeedbackDeleteRequest,
     EveningFeedbackBatchExportRequest,
     EveningFeedbackBatchGenerateRequest,
     EveningFeedbackBatchSaveRequest,
@@ -46,6 +47,7 @@ from .schemas import (
     EveningStudentBulkCreate,
     EveningStudentUpdate,
     FeedbackCreate,
+    FeedbackDeleteRequest,
     FeedbackGenerateRequest,
     FeedbackOrganizeRequest,
     FeedbackOrganizeResponse,
@@ -219,6 +221,7 @@ def next_lesson_number_from_feedbacks(feedbacks: list[dict]) -> int:
 
 def safe_docx_filename(value: str) -> str:
     cleaned = re.sub(r'[\\/:*?"<>|\r\n]+', "", value).strip()
+    cleaned = re.sub(r"\.docx$", "", cleaned, flags=re.IGNORECASE).strip()
     return cleaned or "晚辅反馈"
 
 
@@ -248,6 +251,7 @@ def evening_feedback_word_response(
     owner_name: str,
     export_subject: str,
     document_title: str,
+    filename_base: str,
     export_items: list[dict[str, str]],
 ) -> StreamingResponse:
     if not export_items:
@@ -293,11 +297,11 @@ def evening_feedback_word_response(
     buffer.seek(0)
 
     suffix = f"{owner_name.strip()}{export_subject.strip()}".strip()
-    filename_base = safe_docx_filename(
+    generated_filename_base = safe_docx_filename(
         f"{term_label.strip()}{export_period_filename_label(period)}{evening_class['name']}晚辅反馈"
         f"{f'——{suffix}' if suffix else ''}"
     )
-    filename = f"{filename_base}.docx"
+    filename = f"{safe_docx_filename(filename_base) if filename_base.strip() else generated_filename_base}.docx"
     encoded_filename = quote(filename)
     headers = {
         "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
@@ -905,6 +909,20 @@ def search_feedbacks(
     return {"feedbacks": [dict(row) for row in rows]}
 
 
+@app.delete("/api/feedbacks/batch")
+def delete_feedback_batch(payload: FeedbackDeleteRequest, teacher: dict = CurrentTeacher):
+    ids = [feedback_id for feedback_id in payload.ids if feedback_id]
+    if not ids:
+        raise HTTPException(status_code=400, detail="请选择要删除的一对一反馈")
+    placeholders = ",".join("?" for _ in ids)
+    with get_db() as db:
+        cursor = db.execute(
+            f"DELETE FROM feedbacks WHERE teacher_id = ? AND id IN ({placeholders})",
+            (teacher["id"], *ids),
+        )
+    return {"ok": True, "deleted_count": cursor.rowcount or 0}
+
+
 @app.get("/api/feedbacks/{feedback_id}")
 def get_feedback(feedback_id: int, teacher: dict = CurrentTeacher):
     return {"feedback": require_feedback(feedback_id, teacher["id"])}
@@ -1400,6 +1418,7 @@ def export_evening_feedback_batch(
         owner_name=payload.owner_name,
         export_subject=payload.export_subject,
         document_title=payload.document_title,
+        filename_base=payload.filename_base,
         export_items=[
             {
                 "student_name": item.student_name.strip() or student_map[item.student_id],
@@ -1445,6 +1464,7 @@ def export_evening_feedback_archive(
         owner_name=payload.owner_name,
         export_subject=payload.export_subject,
         document_title=payload.document_title,
+        filename_base=payload.filename_base,
         export_items=export_items,
     )
 
@@ -1795,6 +1815,23 @@ def update_evening_feedback(
     except sqlite3.IntegrityError as exc:
         raise HTTPException(status_code=400, detail="该学生这个时间段已经有反馈，请编辑已有反馈") from exc
     return {"feedback": dict(row)}
+
+
+@app.delete("/api/evening/feedbacks/batch")
+def delete_evening_feedback_batch(
+    payload: EveningFeedbackDeleteRequest,
+    teacher: dict = CurrentTeacher,
+):
+    ids = [feedback_id for feedback_id in payload.ids if feedback_id]
+    if not ids:
+        raise HTTPException(status_code=400, detail="请选择要删除的晚辅反馈")
+    placeholders = ",".join("?" for _ in ids)
+    with get_db() as db:
+        cursor = db.execute(
+            f"DELETE FROM evening_feedbacks WHERE teacher_id = ? AND id IN ({placeholders})",
+            (teacher["id"], *ids),
+        )
+    return {"ok": True, "deleted_count": cursor.rowcount or 0}
 
 
 @app.delete("/api/evening/feedbacks/{feedback_id}")

@@ -34,6 +34,8 @@ const FIELD_LABELS = {
   owner_name: '负责人 / 老师',
   export_subject: '导出科目',
   document_title: 'Word 标题',
+  filename_base: '下载文件名',
+  ids: '反馈',
 }
 
 export function getToken() {

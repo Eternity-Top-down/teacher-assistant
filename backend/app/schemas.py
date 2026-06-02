@@ -86,6 +86,10 @@ class FeedbackUpdate(BaseModel):
     final_feedback: str = Field(min_length=1)
 
 
+class FeedbackDeleteRequest(BaseModel):
+    ids: list[int] = Field(default_factory=list, max_length=500)
+
+
 class EveningClassCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
 
@@ -187,6 +191,7 @@ class EveningFeedbackBatchExportRequest(EveningFeedbackBatchPeriod):
     owner_name: str = Field(default="", max_length=40)
     export_subject: str = Field(default="", max_length=50)
     document_title: str = Field(default="", max_length=120)
+    filename_base: str = Field(default="", max_length=180)
     items: list[EveningFeedbackBatchExportItem] = Field(default_factory=list, max_length=200)
 
 
@@ -195,6 +200,7 @@ class EveningFeedbackClassExportRequest(EveningFeedbackBatchPeriod):
     owner_name: str = Field(default="", max_length=40)
     export_subject: str = Field(default="", max_length=50)
     document_title: str = Field(default="", max_length=120)
+    filename_base: str = Field(default="", max_length=180)
 
 
 class EveningFeedbackArchiveItem(EveningFeedbackBatchPeriod):
@@ -203,6 +209,10 @@ class EveningFeedbackArchiveItem(EveningFeedbackBatchPeriod):
 
 class EveningFeedbackArchiveDeleteRequest(BaseModel):
     items: list[EveningFeedbackArchiveItem] = Field(default_factory=list, max_length=200)
+
+
+class EveningFeedbackDeleteRequest(BaseModel):
+    ids: list[int] = Field(default_factory=list, max_length=500)
 
 
 class AISettingsUpdate(BaseModel):
