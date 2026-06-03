@@ -533,7 +533,6 @@ def select_ai_model(payload: AIModelSelection, teacher: dict = CurrentTeacher):
         teacher["id"],
         payload.model_type,
         config_id=payload.config_id,
-        platform_model_id=payload.platform_model_id,
     )
     return ai_settings_payload(teacher["id"])
 
@@ -779,7 +778,6 @@ async def organize_feedback_note(student_id: int, payload: FeedbackOrganizeReque
         teacher["id"],
         model_type=payload.model_type,
         config_id=payload.config_id,
-        platform_model_id=payload.platform_model_id,
     )
     try:
         return await organize_lesson_note(
@@ -817,7 +815,6 @@ async def create_ai_draft(student_id: int, payload: FeedbackGenerateRequest, tea
         teacher["id"],
         model_type=payload.model_type,
         config_id=payload.config_id,
-        platform_model_id=payload.platform_model_id,
     )
     try:
         draft = await generate_feedback(
@@ -1517,7 +1514,6 @@ async def generate_evening_feedback_batch(
         teacher["id"],
         model_type=payload.model_type,
         config_id=payload.config_id,
-        platform_model_id=payload.platform_model_id,
     )
     style_examples = (
         list_enabled_style_examples(teacher["id"], "evening_feedback")
@@ -1530,7 +1526,7 @@ async def generate_evening_feedback_batch(
         try:
             homework_summary = item.homework_summary.strip()
             if len(homework_summary) < 5:
-                raise ValueError("请至少填写 5 个字的作业完成情况")
+                raise ValueError("请至少填写 5 个字的晚辅情况")
             student = require_evening_student(item.student_id, teacher["id"])
             if student["class_id"] != class_id:
                 raise ValueError("该学生不属于当前晚辅班级")
@@ -1580,7 +1576,7 @@ def save_evening_feedback_batch(
                 final_feedback = item.final_feedback.strip()
                 ai_draft = item.ai_draft.strip() or final_feedback
                 if len(homework_summary) < 5:
-                    raise ValueError("请至少填写 5 个字的作业完成情况")
+                    raise ValueError("请至少填写 5 个字的晚辅情况")
                 if not final_feedback:
                     raise ValueError("请先生成或填写最终反馈")
                 student = require_evening_student(item.student_id, teacher["id"])
@@ -1696,7 +1692,6 @@ async def generate_evening_draft(
         teacher["id"],
         model_type=payload.model_type,
         config_id=payload.config_id,
-        platform_model_id=payload.platform_model_id,
     )
     try:
         draft = await generate_evening_feedback(

@@ -19,13 +19,25 @@
 
 ## 未发布
 
-### 平台默认模型收敛为 DeepSeek
+### 移除平台默认模型功能，模型配置改为用户自带 API
 
-证据：当前工作区 diff，涉及 `backend/app/config.py`、`README.md` 和 `CHANGELOG.md`。
+证据：当前工作区 diff，涉及 `backend/app/config.py`、`backend/app/ai_settings.py`、`backend/app/schemas.py`、`backend/app/main.py`、`frontend/src/App.vue`、`backend/.env.example`、`README.md` 和 `CHANGELOG.md`。
 
-- 平台默认模型列表收敛为 DeepSeek：即使 `AI_PLATFORM_MODELS` 中残留其他 provider，后端也只向老师展示 DeepSeek 平台默认模型用于试用额度。
-- DeepSeek 以外的模型不再作为平台默认模型提供；老师如需使用豆包或其他 OpenAI-compatible 模型，可在“我的模型配置”中自行填写 API Key、Base URL 和模型名。
-- 后端默认全局 AI 兜底模型统一为 DeepSeek `https://api.deepseek.com` + `deepseek-v4-pro`。
+- 移除平台默认模型、免费试用额度和 `AI_PLATFORM_MODELS` 配置链路，项目不再从服务端 `.env` 提供统一模型给老师使用。
+- 模型配置回归老师自己的 OpenAI-compatible API：每个账号可保存多套个人模型配置，并选择其中一套作为当前使用模型。
+- 一对一整理、一对一生成、晚辅单条生成和晚辅批量生成只使用个人模型配置；没有可用配置时提示先到设置页添加 API Key、Base URL 和模型名。
+- 保留旧数据库中的 `teacher_ai_usage` platform/trial 字段作为兼容字段，但业务逻辑不再读写平台模型或扣减试用额度。
+- 前端设置页、生成页、引导弹窗和 `.env.example` 移除平台默认模型、试用额度、免费试用相关文案。
+
+### 一对一与晚辅反馈生成逻辑重构
+
+证据：当前工作区 diff，涉及 `backend/app/ai_client.py`、`backend/app/prompt_examples/feedback_examples.txt`、`backend/app/prompt_examples/legacy_feedback_prompts_2026-06-04.md`、`frontend/src/App.vue`、`frontend/src/styles.css`、`README.md` 和 `CHANGELOG.md`。
+
+- 反馈生成主线从“AI 扩写补全”调整为“老师输入事实，AI 做语言润色、分类整理和表达优化”，明确禁止新增老师未输入的知识点、课堂行为、掌握情况、建议、作业和原因判断。
+- 一对一反馈继续保留课堂学习内容、课堂表现与知识掌握情况、课后建议、作业安排四段结构；缺少课后建议或作业时，前端提供“本次无额外建议”“本次无额外作业”快捷确认。
+- 原始记录整理重新定位为一次性输入后的四板块分类和缺失提示，不再承担最终反馈成文任务；后端新增本地兜底分类，减少模型格式异常导致的整理失败。
+- 晚辅用户侧口径从“作业完成情况”扩展为“晚辅情况”，生成结果更像老师发给家长的自然消息，同时仍保留 `homework_summary` 作为内部兼容字段名。
+- 重建一对一默认反馈样例，并隔离个人风格模式：启用个人风格时不再混入默认样例，只学习语气、排版、段落节奏和标题习惯，不迁移样例事实。
 
 ### 晚辅个人风格生成约束
 
@@ -41,16 +53,15 @@
 - 晚辅反馈生成新增正文口语化时间说法：日反馈写“今天”，周反馈写“本周”，月反馈写“本月”，避免因为月反馈风格样例而把日/周反馈写成生硬日期或月反馈口径。
 - 优化晚辅批量表格操作：批量生成直接处理所有已填写情况简述的学生，不再要求逐行勾选；单行生成保留用于局部重试。有最终反馈内容即可反复保存覆盖，保存成功后保留当前最终反馈，方便老师继续对照查看。
 
-### 平台默认模型试用和多模型配置
+### 多套个人模型配置
 
 证据：当前工作区 diff，涉及 `backend/app/config.py`、`backend/app/database.py`、`backend/app/ai_settings.py`、`backend/app/main.py`、`backend/app/schemas.py`、`frontend/src/App.vue`、`frontend/src/styles.css`、`backend/.env.example`、`README.md` 和 `CHANGELOG.md`。
 
-- 模型配置从单账号单配置升级为“平台默认模型 + 多套个人模型配置”的统一选择列表。
+- 模型配置从单账号单配置升级为多套个人模型配置列表。
 - 设置页模型配置改为列表优先，默认只展示可用模型和新增入口；点击新增或编辑个人模型后才展开配置表单。
-- 一对一新增反馈、晚辅单条反馈和晚辅批量表格的生成区域新增“本次使用模型”选择框，老师可以在生成时直接选择平台默认模型或某条个人模型配置。
-- 新增平台默认模型试用额度，新账号默认 30 次；课堂记录整理、一对一生成、单条晚辅生成、晚辅批量生成各按一次点击扣 1 次，批量表格一次生成只扣 1 次。
-- 老师可保存、编辑、删除、测试多套个人 API 配置，并选择其中一套作为当前使用模型；个人模型生成不扣平台试用额度。
-- 旧的单条老师模型配置会迁移为一条个人模型配置；平台默认模型继续由 `.env` 中的 API 配置提供，不向前端暴露 API Key。
+- 一对一新增反馈、晚辅单条反馈和晚辅批量表格的生成区域保留“本次使用模型”选择框，老师可以在生成时直接选择某条个人模型配置。
+- 老师可保存、编辑、删除、测试多套个人 API 配置，并选择其中一套作为当前使用模型。
+- 旧的单条老师模型配置会迁移为一条个人模型配置；服务端不再通过 `.env` 提供统一生成模型。
 
 ### 晚辅反馈批量表格工作台
 
@@ -66,7 +77,7 @@
 
 证据：当前工作区 diff，涉及 `backend/app/database.py`、`backend/app/main.py`、`backend/app/schemas.py`、`backend/app/ai_client.py`、`frontend/src/App.vue`、`frontend/src/styles.css`、`frontend/src/api.js`、`README.md` 和 `CHANGELOG.md`。
 
-- 晚辅反馈新增学科字段，按每条反馈保存，生成提示词和兜底文案会优先使用“某学生某科作业完成情况”的反馈口径；未填写学科时保持通用作业反馈，不默认写数学。
+- 晚辅反馈新增学科字段，按每条反馈保存；当前生成提示词和兜底文案使用“某学生某科晚辅情况”的反馈口径，未填写学科时保持通用晚辅反馈，不默认写数学。
 - 新增晚辅反馈、编辑晚辅反馈、详情页和查询结果展示学科信息，学科输入支持常见科目选择和手动输入。
 - 晚辅反馈查询新增学生姓名模糊筛选，可与日期范围和按天/按周/按月反馈类型组合使用。
 - 一对一反馈查询新增学生姓名模糊筛选，可与日期范围组合使用，方便快速定位某个学生的历史反馈。
@@ -130,10 +141,8 @@
 
 证据：当前工作区 diff，涉及 `frontend/src/App.vue`、`frontend/src/styles.css`、`backend/app/ai_settings.py`、`backend/app/config.py`、`backend/.env.example`、`README.md` 和 `CHANGELOG.md`。
 
-- 新增 `AI_PLATFORM_MODELS` 平台默认模型列表配置能力，早期示例曾覆盖 DeepSeek 和豆包；当前平台默认已收敛为 DeepSeek。
-- 新增个人模型配置里的推荐模型入口，方便老师为 DeepSeek、豆包或自定义兼容接口填写自己的 API Key 并查看接入文档。
+- 保留个人模型配置里的推荐模型入口，方便老师为 DeepSeek、豆包或自定义兼容接口填写自己的 API Key 并查看接入文档。
 - 晚辅批量反馈表格支持按学生行单独选择生成模型，默认跟随本次使用模型，便于对比不同模型的生成效果。
-- 将默认全局 AI 兜底配置从 OpenAI 示例调整为 DeepSeek，降低新用户配置门槛；当前默认模型为 `deepseek-v4-pro`。
 - 优化个人风格样例说明，明确“样例标题”只用于管理，“反馈样例”正文才会参与 AI 风格学习；如需学习标题格式，应把标题行一并粘贴到正文框。
 - 增强个人风格样例库，支持点击样例卡片查看完整内容、编辑标题/正文/启用状态、启用/停用和删除，设置页与新增反馈弹窗中的样例库保持一致。
 - 新增 `online/` 忽略规则，用于本地临时保存服务器代码快照，避免服务器 `.env`、数据库或构建产物误提交。

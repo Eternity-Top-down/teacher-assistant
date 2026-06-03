@@ -38,8 +38,7 @@ class FeedbackGenerateRequest(BaseModel):
     advice_summary: str = Field(default="", max_length=1000)
     homework_plan: str = Field(default="", max_length=1000)
     use_style_examples: bool = True
-    model_type: str = Field(default="", pattern=r"^(|platform|personal)$")
-    platform_model_id: str = Field(default="", max_length=80)
+    model_type: str = Field(default="", pattern=r"^(|personal)$")
     config_id: int | None = None
 
 
@@ -51,8 +50,7 @@ class FeedbackOrganizeRequest(BaseModel):
     performance_summary: str = Field(default="", max_length=1000)
     advice_summary: str = Field(default="", max_length=1000)
     homework_plan: str = Field(default="", max_length=1000)
-    model_type: str = Field(default="", pattern=r"^(|platform|personal)$")
-    platform_model_id: str = Field(default="", max_length=80)
+    model_type: str = Field(default="", pattern=r"^(|personal)$")
     config_id: int | None = None
 
 
@@ -123,8 +121,7 @@ class EveningFeedbackGenerateRequest(BaseModel):
     subject: str = Field(default="", max_length=50)
     homework_summary: str = Field(min_length=5, max_length=2000)
     use_style_examples: bool = True
-    model_type: str = Field(default="", pattern=r"^(|platform|personal)$")
-    platform_model_id: str = Field(default="", max_length=80)
+    model_type: str = Field(default="", pattern=r"^(|personal)$")
     config_id: int | None = None
 
 
@@ -161,8 +158,7 @@ class EveningFeedbackBatchGenerateItem(BaseModel):
 
 class EveningFeedbackBatchGenerateRequest(EveningFeedbackBatchPeriod):
     use_style_examples: bool = True
-    model_type: str = Field(default="", pattern=r"^(|platform|personal)$")
-    platform_model_id: str = Field(default="", max_length=80)
+    model_type: str = Field(default="", pattern=r"^(|personal)$")
     config_id: int | None = None
     items: list[EveningFeedbackBatchGenerateItem] = Field(default_factory=list, max_length=200)
 
@@ -252,8 +248,7 @@ class AIConfigUpdate(BaseModel):
 
 
 class AIModelSelection(BaseModel):
-    model_type: str = Field(pattern=r"^(platform|personal)$")
-    platform_model_id: str = Field(default="", max_length=80)
+    model_type: str = Field(default="personal", pattern=r"^personal$")
     config_id: int | None = None
 
 

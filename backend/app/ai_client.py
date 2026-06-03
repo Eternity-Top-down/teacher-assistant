@@ -6,7 +6,6 @@ from pathlib import Path
 import httpx
 
 from .ai_settings import AIConfig
-from .config import settings
 
 
 EXAMPLES_PATH = Path(__file__).resolve().parent / "prompt_examples" / "feedback_examples.txt"
@@ -194,13 +193,7 @@ async def generate_feedback(
     style_examples: list[dict] | None = None,
     ai_config: AIConfig | None = None,
 ) -> str:
-    config = ai_config or AIConfig(
-        api_key=settings.ai_api_key,
-        base_url=settings.ai_base_url,
-        model=settings.ai_model,
-        provider="env",
-    )
-    if not config.api_key:
+    if not ai_config or not ai_config.api_key:
         return fallback_feedback(
             student_name,
             subject,
@@ -333,7 +326,7 @@ async def generate_feedback(
 """.strip()
 
     payload = {
-        "model": config.model,
+        "model": ai_config.model,
         "messages": [
             {"role": "system", "content": "你只输出一对一课后反馈正文，不进行对话解释。"},
             {"role": "user", "content": prompt},
@@ -343,8 +336,8 @@ async def generate_feedback(
 
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(
-            f"{config.base_url.rstrip('/')}/chat/completions",
-            headers={"Authorization": f"Bearer {config.api_key}"},
+            f"{ai_config.base_url.rstrip('/')}/chat/completions",
+            headers={"Authorization": f"Bearer {ai_config.api_key}"},
             json=payload,
         )
         response.raise_for_status()
@@ -579,13 +572,7 @@ async def generate_evening_feedback(
     style_examples: list[dict] | None = None,
     ai_config: AIConfig | None = None,
 ) -> str:
-    config = ai_config or AIConfig(
-        api_key=settings.ai_api_key,
-        base_url=settings.ai_base_url,
-        model=settings.ai_model,
-        provider="env",
-    )
-    if not config.api_key:
+    if not ai_config or not ai_config.api_key:
         return fallback_evening_feedback(student_name, period_type, period_label, subject, homework_summary)
 
     display_name = student_display_name(student_name)
@@ -627,7 +614,7 @@ async def generate_evening_feedback(
    - 包括作业完成情况、晚辅状态、纪律情况、做得好的地方、需要关注的地方、老师明确提出的建议。
    - 只使用这些事实做语言优化，不新增课堂外信息。
 2. 再组织成自然消息。
-   - 作业完成情况是主线。
+   - 晚辅情况是主线，可以包含作业完成、订正、纪律、学习状态、主要问题和建议。
    - 老师写到哪个维度就写哪个维度；没有写到纪律、优点或问题时，不要为了完整而补。
    - 输入很少时，输出就简短，不硬凑成完整反馈。
 3. 最后处理建议。
@@ -663,7 +650,7 @@ async def generate_evening_feedback(
 """.strip()
 
     payload = {
-        "model": config.model,
+        "model": ai_config.model,
         "messages": [
             {
                 "role": "system",
@@ -680,8 +667,8 @@ async def generate_evening_feedback(
 
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(
-            f"{config.base_url.rstrip('/')}/chat/completions",
-            headers={"Authorization": f"Bearer {config.api_key}"},
+            f"{ai_config.base_url.rstrip('/')}/chat/completions",
+            headers={"Authorization": f"Bearer {ai_config.api_key}"},
             json=payload,
         )
         response.raise_for_status()

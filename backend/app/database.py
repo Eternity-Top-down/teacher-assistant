@@ -150,10 +150,10 @@ def init_db() -> None:
 
             CREATE TABLE IF NOT EXISTS teacher_ai_usage (
                 teacher_id INTEGER PRIMARY KEY,
-                selected_model_type TEXT NOT NULL DEFAULT 'platform',
+                selected_model_type TEXT NOT NULL DEFAULT '',
                 selected_platform_model_id TEXT NOT NULL DEFAULT '',
                 selected_config_id INTEGER,
-                trial_quota_total INTEGER NOT NULL DEFAULT 30,
+                trial_quota_total INTEGER NOT NULL DEFAULT 0,
                 trial_quota_used INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -200,7 +200,7 @@ def init_db() -> None:
         }
         if "selected_model_type" not in usage_columns:
             db.execute(
-                "ALTER TABLE teacher_ai_usage ADD COLUMN selected_model_type TEXT NOT NULL DEFAULT 'platform'"
+                "ALTER TABLE teacher_ai_usage ADD COLUMN selected_model_type TEXT NOT NULL DEFAULT ''"
             )
         if "selected_platform_model_id" not in usage_columns:
             db.execute("ALTER TABLE teacher_ai_usage ADD COLUMN selected_platform_model_id TEXT NOT NULL DEFAULT ''")
@@ -208,7 +208,7 @@ def init_db() -> None:
             db.execute("ALTER TABLE teacher_ai_usage ADD COLUMN selected_config_id INTEGER")
         if "trial_quota_total" not in usage_columns:
             db.execute(
-                "ALTER TABLE teacher_ai_usage ADD COLUMN trial_quota_total INTEGER NOT NULL DEFAULT 30"
+                "ALTER TABLE teacher_ai_usage ADD COLUMN trial_quota_total INTEGER NOT NULL DEFAULT 0"
             )
         if "trial_quota_used" not in usage_columns:
             db.execute(
@@ -247,16 +247,16 @@ def init_db() -> None:
             )
             SELECT
                 t.id,
-                CASE WHEN c.id IS NOT NULL THEN 'personal' ELSE 'platform' END,
+                CASE WHEN c.id IS NOT NULL THEN 'personal' ELSE '' END,
                 c.id,
-                ?,
+                0,
                 0,
                 ?,
                 ?
             FROM teachers t
             LEFT JOIN teacher_ai_configs c ON c.teacher_id = t.id AND c.is_active = 1
             """,
-            (settings.ai_trial_quota, timestamp, timestamp),
+            (timestamp, timestamp),
         )
         style_example_columns = {
             row["name"]

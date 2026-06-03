@@ -197,7 +197,7 @@ const AI_PRESETS = {
     label: 'DeepSeek（推荐）',
     base_url: 'https://api.deepseek.com',
     model: 'deepseek-v4-pro',
-    hint: '使用 DeepSeek 官方 OpenAI-compatible 接入方式：Base URL 为 https://api.deepseek.com，模型名按当前平台默认配置使用 deepseek-v4-pro。',
+    hint: '使用 DeepSeek 官方 OpenAI-compatible 接入方式：可自行填写 Base URL、模型名和 API Key。',
     api_key_url: 'https://platform.deepseek.com/api_keys',
     docs_url: 'https://api-docs.deepseek.com/',
   },
@@ -218,8 +218,6 @@ const selectedAIPreset = computed(() => AI_PRESETS[aiSettingsForm.provider] || A
 const aiModelOptions = computed(() => aiSettings.value?.models || [])
 const aiPersonalConfigs = computed(() => aiSettings.value?.configs || [])
 const activeAIModel = computed(() => aiSettings.value?.active_model || null)
-const aiTrialRemaining = computed(() => aiSettings.value?.trial_quota_remaining ?? 0)
-const aiTrialTotal = computed(() => aiSettings.value?.trial_quota_total ?? 0)
 const selectedGenerationModel = computed(() => aiModelOptions.value.find((model) => aiModelKey(model) === generationModelKey.value) || activeAIModel.value)
 const currentView = computed(() => {
   if (!isAuthed.value) return 'auth'
@@ -1177,7 +1175,7 @@ function assignAISettings(settings) {
 
 function aiModelKey(model) {
   if (!model) return ''
-  return model.type === 'personal' ? `personal-${model.id}` : `platform-${model.id || 'default'}`
+  return `personal-${model.id}`
 }
 
 function syncGenerationModelSelection() {
@@ -1202,9 +1200,8 @@ function selectedGenerationModelPayload() {
   const model = selectedGenerationModel.value
   if (!model) return {}
   return {
-    model_type: model.type,
-    platform_model_id: model.type === 'platform' ? model.id : '',
-    config_id: model.type === 'personal' ? model.id : null,
+    model_type: 'personal',
+    config_id: model.id,
   }
 }
 
@@ -1212,9 +1209,8 @@ function modelPayloadFromKey(modelKey = '') {
   const model = aiModelOptions.value.find((item) => aiModelKey(item) === modelKey) || selectedGenerationModel.value
   if (!model) return {}
   return {
-    model_type: model.type,
-    platform_model_id: model.type === 'platform' ? model.id : '',
-    config_id: model.type === 'personal' ? model.id : null,
+    model_type: 'personal',
+    config_id: model.id,
   }
 }
 
@@ -1224,8 +1220,7 @@ function eveningBatchRowModelKey(row) {
 
 function generationModelHint() {
   const model = selectedGenerationModel.value
-  if (!model) return '请先到设置页选择或添加可用模型'
-  if (model.type === 'platform') return `${model.provider} · 平台试用 · 剩余 ${aiTrialRemaining.value} / ${aiTrialTotal.value} 次`
+  if (!model) return '请先到设置页添加自己的 API 模型配置'
   return `${model.provider} · ${model.model}`
 }
 
@@ -1339,9 +1334,8 @@ async function selectAIModel(model) {
     const data = await request('/settings/ai/select', {
       method: 'POST',
       body: JSON.stringify({
-        model_type: model.type,
-        platform_model_id: model.type === 'platform' ? model.id : '',
-        config_id: model.type === 'personal' ? model.id : null,
+        model_type: 'personal',
+        config_id: model.id,
       }),
     })
     assignAISettings(data)
@@ -3302,12 +3296,12 @@ onMounted(async () => {
             </button>
 
             <div v-show="settingsPanels.feedback_ai" class="settings-panel-body">
-              <p class="settings-hint">反馈生成模型主要负责把老师填写的课堂事实整理成可以发给家长的课后反馈。可以先使用平台默认模型免费试用，也可以保存多套自己的 API 配置并选择当前使用项。</p>
+              <p class="settings-hint">反馈生成模型主要负责把老师填写的课堂事实整理成可以发给家长的课后反馈。请添加自己的 OpenAI-compatible API 配置，可保存多套并选择当前使用项。</p>
 
               <section class="ai-model-list">
                 <div class="style-library-header">
                   <strong>可用模型</strong>
-                  <small>平台默认剩余 {{ aiTrialRemaining }} / {{ aiTrialTotal }} 次</small>
+                  <small>{{ aiModelOptions.length ? '个人模型配置' : '请先新增模型配置' }}</small>
                 </div>
                 <label class="settings-model-select">当前使用模型
                   <select v-model="settingsModelKey" @change="selectSettingsAIModel">
@@ -3318,12 +3312,12 @@ onMounted(async () => {
                 <article v-for="model in aiModelOptions" :key="`${model.type}-${model.id}`" class="ai-model-item" :class="{ active: model.is_active }">
                   <div>
                     <strong>{{ model.name }}</strong>
-                    <small>{{ model.provider }} · {{ model.model }} · {{ model.type === 'platform' ? '平台默认模型' : (model.has_api_key ? '已保存 API Key' : '未保存 API Key') }}</small>
+                    <small>{{ model.provider }} · {{ model.model }} · {{ model.has_api_key ? '已保存 API Key' : '未保存 API Key' }}</small>
                   </div>
                   <div class="button-row">
                     <button type="button" class="ghost-btn" :disabled="loading || model.is_active || !model.has_api_key" @click="selectAIModel(model)">{{ model.is_active ? '使用中' : '使用' }}</button>
-                    <button v-if="model.type === 'personal'" type="button" class="ghost-btn" :disabled="loading" @click="editAIConfig(model)">编辑</button>
-                    <button v-if="model.type === 'personal'" type="button" class="danger-btn" :disabled="loading" @click="deleteAIConfig(model)">删除</button>
+                    <button type="button" class="ghost-btn" :disabled="loading" @click="editAIConfig(model)">编辑</button>
+                    <button type="button" class="danger-btn" :disabled="loading" @click="deleteAIConfig(model)">删除</button>
                   </div>
                 </article>
                 <div class="button-row">
@@ -3459,11 +3453,11 @@ onMounted(async () => {
           </div>
           <button type="button" class="icon-btn" @click="closeApiOnboarding">×</button>
         </div>
-        <p class="settings-hint">可以先使用平台默认模型免费试用，也可以在设置页保存自己的模型 API。个人 API Key 只保存在当前老师账号下，并会加密保存。</p>
+        <p class="settings-hint">开始生成反馈前，需要先在设置页保存自己的模型 API。个人 API Key 只保存在当前老师账号下，并会加密保存。</p>
         <div class="guide-step-list">
           <article>
-            <strong>1. 平台默认模型可先试用</strong>
-            <span>课堂记录整理、一对一反馈和晚辅反馈都可以使用；试用次数用完后再配置自己的 API。</span>
+            <strong>1. 添加自己的模型 API</strong>
+            <span>填写 API Key、Base URL 和模型名后，即可用于课堂记录整理、一对一反馈和晚辅反馈。</span>
           </article>
           <article>
             <strong>2. 个人模型可保存多套</strong>
@@ -3471,7 +3465,7 @@ onMounted(async () => {
           </article>
         </div>
         <div class="button-row danger-row">
-          <button type="button" class="primary-btn" @click="goToApiSettingsFromOnboarding">去选择模型</button>
+          <button type="button" class="primary-btn" @click="goToApiSettingsFromOnboarding">去配置模型</button>
           <button type="button" class="ghost-btn" @click="closeApiOnboarding">知道了，稍后再说</button>
         </div>
       </article>
