@@ -2281,6 +2281,13 @@ body::before {
   color: #9d3f2e;
 }
 
+.field-quick-confirm {
+  align-self: flex-start;
+  min-height: 30px;
+  padding: 6px 10px;
+  font-size: 0.82rem;
+}
+
 .classroom-generate-row {
   justify-content: flex-start;
   padding-top: 2px;

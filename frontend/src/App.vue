@@ -103,7 +103,7 @@ const EVENING_PERIOD_TYPES = [
   { value: 'month', label: '按月' },
 ]
 const COMMON_SUBJECTS = ['数学', '英语', '语文', '物理', '化学', '生物', '历史', '地理', '政治', '科学']
-const EVENING_SUMMARY_PLACEHOLDER = '可写作业完成情况、晚辅纪律、做得好的地方、存在问题和建议。例如：作业完成不错，晚辅后半段有聊天，书写还需要更认真。'
+const EVENING_SUMMARY_PLACEHOLDER = '可写作业完成、订正情况、晚辅纪律、学习状态、存在问题和建议。例如：作业完成不错，晚辅后半段有聊天，书写还需要更认真。'
 const FEEDBACK_CORE_FIELDS = [
   {
     formField: 'lesson_summary',
@@ -308,6 +308,7 @@ const missingFeedbackFields = computed(() => FEEDBACK_CORE_FIELDS.filter((field)
 const blockingMissingFields = computed(() => [...new Set([...organizeMissingFields.value, ...missingFeedbackFields.value])])
 const canGenerateFeedback = computed(() => blockingMissingFields.value.length === 0)
 const missingFieldText = computed(() => blockingMissingFields.value.map((field) => FIELD_TITLES[field] || field).join('、'))
+const missingFieldGuidanceText = computed(() => blockingMissingFields.value.map((field) => fieldSupplementPrompt(field)).join(' '))
 const eveningFeedbackStudentOptions = computed(() => {
   if (eveningStudents.value.length) return eveningStudents.value
   if (eveningDetail.value?.student_id) {
@@ -895,7 +896,7 @@ function setEveningFeedbackPeriodType(form, type) {
 }
 
 function subjectWorkLabel(subject) {
-  return subject?.trim() ? `${subject.trim()}作业` : '作业'
+  return subject?.trim() ? `${subject.trim()}晚辅` : '晚辅'
 }
 
 function eveningBatchFingerprint(row) {
@@ -1928,10 +1929,28 @@ function isFieldMissing(field) {
 }
 
 function fieldSupplementPrompt(field) {
-  if (field === 'advice_summary') return '老师希望学生课后怎么做？请写你的真实建议方向。'
-  if (field === 'homework_plan') return '本次实际布置了什么任务？没有作业请写“无”或“本次无额外作业”。'
-  if (field === 'performance_summary') return '学生这节课表现和掌握情况如何？写状态、做题情况、掌握好的地方或卡住的地方。'
-  return '本节课主要学了什么？写知识点、题型、方法或练习内容。'
+  if (field === 'advice_summary') return '一对一课后通常建议写明巩固方向；如果本节确实没有额外建议，可确认“本次无额外建议”。'
+  if (field === 'homework_plan') return '一对一课后通常建议写明复习、订正、练习或预习任务；如果本节确实没有作业，可确认“本次无额外作业”。'
+  if (field === 'performance_summary') return '请补充学生这节课的表现和掌握情况，例如状态、做题情况、掌握好的地方或卡住的地方。'
+  return '请补充本节课主要学了什么，例如知识点、题型、方法或练习内容。'
+}
+
+function fieldQuickConfirmText(field) {
+  if (field === 'advice_summary') return '本次无额外建议'
+  if (field === 'homework_plan') return '本次无额外作业'
+  return ''
+}
+
+function canQuickConfirmField(field) {
+  return ['advice_summary', 'homework_plan'].includes(field) && isFieldMissing(field)
+}
+
+function quickConfirmMissingField(field) {
+  const text = fieldQuickConfirmText(field)
+  if (!text) return
+  feedbackForm[field] = text
+  organizeMissingFields.value = organizeMissingFields.value.filter((item) => item !== field)
+  saveFeedbackDraft()
 }
 
 function handleRawLessonNoteInput(event) {
@@ -1982,7 +2001,7 @@ async function organizeLessonNote() {
     await resizeAllTextareas()
     await loadAISettings()
     saveFeedbackDraft()
-    showMessage(organizeMissingFields.value.length ? `还需补充：${missingFieldText.value}` : '课堂记录已整理完整，可以生成反馈')
+    showMessage(organizeMissingFields.value.length ? `还有信息需要确认：${missingFieldText.value}` : '课堂记录已整理完整，可以生成反馈')
   } catch (error) {
     showMessage(error.message)
   } finally {
@@ -1992,7 +2011,7 @@ async function organizeLessonNote() {
 
 async function generateDraft() {
   if (!feedbackForm.lesson_title.trim()) return showMessage('请填写反馈标题')
-  if (!canGenerateFeedback.value) return showMessage(`请先补充：${missingFieldText.value}`)
+  if (!canGenerateFeedback.value) return showMessage(`请先补充或确认：${missingFieldText.value}。${missingFieldGuidanceText.value}`)
   const contentPayload = {
     lesson_summary: feedbackForm.lesson_summary,
     performance_summary: feedbackForm.performance_summary,
@@ -2407,7 +2426,7 @@ async function generateEveningBatchDrafts(rows = null) {
 }
 
 async function generateEveningBatchRow(row) {
-  if (!row.homework_summary.trim()) return showMessage('请先填写这名学生的情况')
+  if (!row.homework_summary.trim()) return showMessage('请先填写这名学生的晚辅情况')
   row.selected_for_generate = true
   await generateEveningBatchDrafts([row])
 }
@@ -2651,7 +2670,7 @@ function openMonthlyModal(student = null) {
 async function generateMonthlyDraft() {
   if (!monthlyForm.student_id) return showMessage('请选择晚辅学生')
   if (!monthlyForm.period_value) return showMessage('请选择反馈时间')
-  if (!monthlyForm.homework_summary.trim()) return showMessage('请填写作业完成情况简述')
+  if (!monthlyForm.homework_summary.trim()) return showMessage('请填写晚辅情况简述')
   generatingMonthlyDraft.value = true
   loading.value = true
   try {
@@ -3212,7 +3231,7 @@ onMounted(async () => {
                   <tr>
                     <th>学生</th>
                     <th>学科</th>
-                    <th>情况简述</th>
+                    <th>晚辅情况</th>
                     <th>最终反馈</th>
                     <th>状态</th>
                     <th>操作</th>
@@ -3575,10 +3594,11 @@ onMounted(async () => {
                 <label v-for="field in FEEDBACK_CORE_FIELDS" :key="field.formField" :class="{ 'field-missing': isFieldMissing(field.formField) }">
                   <span>{{ field.title }}</span>
                   <small v-if="isFieldMissing(field.formField)">{{ fieldSupplementPrompt(field.formField) }}</small>
+                  <button v-if="canQuickConfirmField(field.formField)" type="button" class="ghost-btn field-quick-confirm" @click="quickConfirmMissingField(field.formField)">{{ fieldQuickConfirmText(field.formField) }}</button>
                   <textarea v-model="feedbackForm[field.formField]" class="auto-textarea" :placeholder="field.placeholder" @input="autoResize($event); clearOrganizedMissingField(field.formField)"></textarea>
                 </label>
               </div>
-              <p v-if="(feedbackEntryMode === 'direct' || hasOrganizedLessonNote) && blockingMissingFields.length" class="settings-warning">还需补充：{{ missingFieldText }}。四大板块齐全后才能生成反馈。</p>
+              <p v-if="(feedbackEntryMode === 'direct' || hasOrganizedLessonNote) && blockingMissingFields.length" class="settings-warning">请先补充或确认：{{ missingFieldText }}。{{ missingFieldGuidanceText }}</p>
               <p v-if="(feedbackEntryMode === 'direct' || hasOrganizedLessonNote) && canGenerateFeedback" class="settings-hint">四大板块已整理完整，请确认内容无误后生成反馈。</p>
               <label class="generation-model-picker">本次使用模型
                 <select v-model="generationModelKey">
@@ -3763,7 +3783,7 @@ onMounted(async () => {
             <button type="button" class="ghost-btn" :disabled="loading" @click="openFeedbackStyleModal('evening_feedback')">{{ eveningStyleExamples.length ? '管理晚辅风格' : '晚辅风格' }}</button>
           </div>
         </section>
-        <label>{{ subjectWorkLabel(monthlyForm.subject) }}完成情况简述<textarea v-model="monthlyForm.homework_summary" class="auto-textarea" :placeholder="EVENING_SUMMARY_PLACEHOLDER" @input="autoResize"></textarea></label>
+        <label>{{ subjectWorkLabel(monthlyForm.subject) }}情况简述<textarea v-model="monthlyForm.homework_summary" class="auto-textarea" :placeholder="EVENING_SUMMARY_PLACEHOLDER" @input="autoResize"></textarea></label>
         <div class="button-row"><button type="button" class="ghost-btn loading-action-btn" :class="{ loading: generatingMonthlyDraft }" :disabled="loading" @click="generateMonthlyDraft">{{ generatingMonthlyDraft ? '生成中...' : '生成 AI 初稿' }}</button><button class="primary-btn" :disabled="loading">保存晚辅反馈</button></div>
         <label>AI 初稿<textarea v-model="monthlyForm.ai_draft" class="auto-textarea large-text" @input="autoResize"></textarea></label><label>最终反馈<textarea v-model="monthlyForm.final_feedback" class="auto-textarea final-text" @input="autoResize"></textarea></label>
       </form>
@@ -3876,7 +3896,7 @@ onMounted(async () => {
           <div class="button-row danger-row"><div class="button-row"><button class="ghost-btn" @click="isEditingEveningDetail = true; assignMonthly(monthlyEditForm, eveningDetail); resizeAllTextareas()">编辑反馈</button><button class="ghost-btn" @click="addCurrentEveningFeedbackAsStyleExample">设为晚辅风格样例</button></div><button class="danger-btn" @click="deleteEveningFeedback">删除反馈</button></div>
         </template>
         <form v-else class="feedback-editor" @submit.prevent="saveEveningDetailEdit">
-          <label>晚辅学生<select v-model="monthlyEditForm.student_id"><option v-for="student in eveningFeedbackStudentOptions" :key="student.id" :value="student.id">{{ student.name }}</option></select></label><label>反馈类型<select v-model="monthlyEditForm.period_type" @change="setEveningFeedbackPeriodType(monthlyEditForm, monthlyEditForm.period_type)"><option v-for="type in EVENING_PERIOD_TYPES" :key="type.value" :value="type.value">{{ type.label }}</option></select></label><label>{{ periodFieldLabel(monthlyEditForm.period_type) }}<input v-model="monthlyEditForm.period_value" :type="periodInputType(monthlyEditForm.period_type)" /></label><label>学科<select v-model="monthlyEditForm.subject"><option value="">不填写学科</option><option v-for="subject in COMMON_SUBJECTS" :key="subject" :value="subject">{{ subject }}</option></select></label><label>{{ subjectWorkLabel(monthlyEditForm.subject) }}完成情况简述<textarea v-model="monthlyEditForm.homework_summary" class="auto-textarea" @input="autoResize"></textarea></label><label>AI 初稿<textarea v-model="monthlyEditForm.ai_draft" class="auto-textarea large-text" @input="autoResize"></textarea></label><label>最终反馈<textarea v-model="monthlyEditForm.final_feedback" class="auto-textarea final-text" @input="autoResize"></textarea></label>
+          <label>晚辅学生<select v-model="monthlyEditForm.student_id"><option v-for="student in eveningFeedbackStudentOptions" :key="student.id" :value="student.id">{{ student.name }}</option></select></label><label>反馈类型<select v-model="monthlyEditForm.period_type" @change="setEveningFeedbackPeriodType(monthlyEditForm, monthlyEditForm.period_type)"><option v-for="type in EVENING_PERIOD_TYPES" :key="type.value" :value="type.value">{{ type.label }}</option></select></label><label>{{ periodFieldLabel(monthlyEditForm.period_type) }}<input v-model="monthlyEditForm.period_value" :type="periodInputType(monthlyEditForm.period_type)" /></label><label>学科<select v-model="monthlyEditForm.subject"><option value="">不填写学科</option><option v-for="subject in COMMON_SUBJECTS" :key="subject" :value="subject">{{ subject }}</option></select></label><label>{{ subjectWorkLabel(monthlyEditForm.subject) }}情况简述<textarea v-model="monthlyEditForm.homework_summary" class="auto-textarea" @input="autoResize"></textarea></label><label>AI 初稿<textarea v-model="monthlyEditForm.ai_draft" class="auto-textarea large-text" @input="autoResize"></textarea></label><label>最终反馈<textarea v-model="monthlyEditForm.final_feedback" class="auto-textarea final-text" @input="autoResize"></textarea></label>
           <div class="button-row"><button class="primary-btn">保存修改</button><button type="button" class="ghost-btn" @click="isEditingEveningDetail = false">取消</button></div>
         </form>
       </article>
